@@ -558,10 +558,39 @@
         const data = await window.YHApi.search(w);
         res.innerHTML = '';
         (data.list || []).forEach(cat => {
+          const label = (cat.type_name || cat.list_name || '').toString();
+          if (cat.list && cat.list.length) {
+            res.insertAdjacentHTML('beforeend', `<div class="yh-cat-head">${window.YHRender.escapeHtml(label) || '搜索结果'}</div>`);
+          }
           (cat.list || []).forEach(it => {
             const el = document.createElement('div'); el.className = 'yh-contact-item';
-            el.innerHTML = `${avatarHtml(it.avatarUrl, it.nickname, 40)}<div><div class="yh-contact-name">${window.YHRender.escapeHtml(it.nickname || it.name || '')}</div><div class="yh-contact-sub">${typeName(it.friendType)}</div></div>`;
-            el.onclick = () => { d.open = false; openChat({ chatId: it.friendId, chatType: it.friendType, name: it.nickname || it.name, avatarUrl: it.avatarUrl }); };
+            const id = it.friendId || it.friend_id || it.id || '';
+            const name = it.nickname || it.name || '';
+            const typeCode = it.friendType != null ? it.friendType : (it.chat_type != null ? it.chat_type : 0);
+            const typeLabel = typeName(typeCode);
+            // 用户要求：搜索结果里的"板块/分区"也要显示 ID 并能点击进入 → 同时对
+            // 用户/群聊/机器人统一显示 ID，点击按类型开对应详情：群(2)→群详情，
+            // 机器人(3)→机器人详情，用户(1)→用户详情，其他→打开聊天。
+            const idChip = id
+              ? `<span class="yh-ba-id">#${window.YHRender.escapeHtml(String(id))}</span>`
+              : '';
+            el.innerHTML =
+              `${avatarHtml(it.avatarUrl || it.avatar_url, name, 40)}
+               <div style="flex:1;min-width:0">
+                 <div class="yh-contact-name" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                   ${window.YHRender.escapeHtml(name)}${idChip}
+                 </div>
+                 <div class="yh-contact-sub">${typeLabel} · ID: <code>${window.YHRender.escapeHtml(String(id || '—'))}</code></div>
+               </div>`;
+            el.onclick = () => {
+              d.open = false;
+              // 群聊 / 机器人 → 先打开详情（含邀请成员 / 介绍 / 加群按钮）；用户和未知类型走打开聊天。
+              if (typeCode === 2 || typeCode === 3) {
+                showDetail(typeCode, id, name);
+              } else {
+                openChat({ chatId: id, chatType: Number(typeCode || 1), name, avatarUrl: it.avatarUrl || it.avatar_url });
+              }
+            };
             res.appendChild(el);
           });
         });
@@ -933,7 +962,20 @@
           res.innerHTML += '<div class="yh-cat-head">分区</div>';
           ba.forEach(b => {
             const el = document.createElement('div'); el.className = 'yh-ba-card';
-            el.innerHTML = `${avatarHtml(b.avatar, b.name, 40)}<div class="yh-ba-meta"><div class="yh-ba-title">${window.YHRender.escapeHtml(b.name || '')}</div></div>`;
+            const baId = b.id != null ? String(b.id) : '';
+            // 用户要求：社区搜索的分区也要显示"分区 ID"，并可以点卡片进去
+            el.innerHTML = `${avatarHtml(b.avatar, b.name, 40)}
+              <div class="yh-ba-meta">
+                <div class="yh-ba-title">
+                  ${window.YHRender.escapeHtml(b.name || '')}
+                  ${baId ? `<span class="yh-ba-id" title="分区 ID">#${window.YHRender.escapeHtml(baId)}</span>` : ''}
+                </div>
+                <div class="yh-ba-desc">
+                  ${b.memberNum || 0} 成员 · ${b.postNum || 0} 文章
+                  ${baId ? ` · ID: <code>${window.YHRender.escapeHtml(baId)}</code>` : ''}
+                </div>
+              </div>
+              <mdui-icon-button icon="chevron_right"></mdui-icon-button>`;
             el.onclick = () => { d.open = false; openBaDetail(b.id); };
             res.appendChild(el);
           });
@@ -942,7 +984,15 @@
           res.innerHTML += '<div class="yh-cat-head">文章</div>';
           posts.forEach(p => {
             const el = document.createElement('div'); el.className = 'yh-post-card';
-            el.innerHTML = `<div class="yh-post-card-title">${window.YHRender.escapeHtml(p.title || '无标题')}</div><div class="yh-contact-sub">${window.YHRender.escapeHtml(p.senderNickname || '')}</div>`;
+            // 文章也顺手显示一下所属分区 ID（board_area_id / baId / boardId），
+            // 免得用户要翻帖子所属分区时还得切界面。
+            const belongId = String(p.board_area_id || p.baId || p.boardId || '');
+            el.innerHTML =
+              `<div class="yh-post-card-title">${window.YHRender.escapeHtml(p.title || '无标题')}</div>
+               <div class="yh-contact-sub">
+                 ${window.YHRender.escapeHtml(p.senderNickname || '')}
+                 ${belongId ? ` · 分区 ID: <code>${window.YHRender.escapeHtml(belongId)}</code>` : ''}
+               </div>`;
             el.onclick = () => { d.open = false; openPost(p.id); };
             res.appendChild(el);
           });
@@ -969,7 +1019,7 @@
       } else if (type === 2) {
         const g = await window.YHApi.getGroupInfo(id);
         name = g.name; avatar = g.avatar_url; sub = g.introduction || '';
-        extra = `成员：${g.member || 0}<br/>群口令：${g.group_code || '—'}${g.category_name ? '<br/>分类：' + window.YHRender.escapeHtml(g.category_name) : ''}`;
+        extra = `成员：${g.member || 0}<br/>群口令：${g.group_code || '—'}${g.category_name ? '<br/>分类：' + window.YHRender.escapeHtml(g.category_name) : ''}<br/>群 ID：<code>${window.YHRender.escapeHtml(String(id))}</code>`;
       } else if (type === 3) {
         const b = await window.YHApi.getBotInfo(id);
         name = b.name; avatar = b.avatar_url; sub = b.introduction || '';
@@ -978,13 +1028,16 @@
         throw new Error('未知的会话类型');
       }
       // 重新构建完整内容后一次性替换
+      const inviteBtn = type === 2 ? '<mdui-button variant="tonal" id="d-invite" icon="person_add">邀请成员</mdui-button>' : '';
       d.innerHTML = `<div style="padding:18px">
         <div style="text-align:center">${avatarHtml(avatar, name, 72)}<div style="font-size:20px;font-weight:800;margin-top:8px">${window.YHRender.escapeHtml(name || fallbackName || '')}</div>
         <div class="yh-contact-sub">${window.YHRender.escapeHtml(sub || '')}</div></div>
         <div style="margin:12px 0;font-size:14px">${extra}</div>
-        <div style="display:flex;gap:8px;justify-content:center">
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
           <mdui-button variant="filled" id="d-msg">发消息</mdui-button>
-          ${type === 1 ? '<mdui-button variant="outlined" id="d-add">加好友</mdui-button>' : (type === 2 ? '<mdui-button variant="outlined" id="d-join">加入群聊</mdui-button>' : '')}
+          ${type === 1 ? '<mdui-button variant="outlined" id="d-add">加好友</mdui-button>' : ''}
+          ${type === 2 ? '<mdui-button variant="outlined" id="d-join">加入群聊</mdui-button>' : ''}
+          ${inviteBtn}
         </div></div>`;
       const close = document.createElement('mdui-button-icon');
       close.icon = 'close'; close.className = 'yh-dialog-close'; close.setAttribute('aria-label', '关闭');
@@ -992,12 +1045,85 @@
       d.querySelector('#d-msg').onclick = () => { d.open = false; openChat({ chatId: id, chatType: type, name: name || fallbackName, avatarUrl: avatar }); };
       const add = d.querySelector('#d-add'); if (add) add.onclick = async () => { try { await window.YHApi.addFriend(id); snack('已发送好友申请'); } catch (e) { snack(e.message); } };
       const join = d.querySelector('#d-join'); if (join) join.onclick = async () => { try { await window.YHApi.joinGroup(id); snack('已申请加入'); } catch (e) { snack(e.message); } };
+      const invite = d.querySelector('#d-invite');
+      if (invite) invite.onclick = () => openInviteToGroupDialog({ groupId: id, groupName: name || fallbackName || '' });
     } catch (e) {
       d.innerHTML = `<div style="padding:18px" class="yh-error">${window.YHRender.escapeHtml(e.message)}</div>`;
       const close = document.createElement('mdui-button-icon');
       close.icon = 'close'; close.className = 'yh-dialog-close'; close.setAttribute('aria-label', '关闭');
       close.onclick = () => { d.open = false; }; d.appendChild(close);
     }
+  }
+
+  // 邀请好友 / 机器人 进群的对话框
+  // 入口：群聊详情里的“邀请成员”按钮。
+  // 提供两种方式：
+  //   1) 下拉：从当前已加载的通讯录（S._book）里选一个好友（chatType=1）或机器人（chatType=3）
+  //   2) 手动：输入 chatId 并选择 chatType
+  function openInviteToGroupDialog({ groupId, groupName }) {
+    // 把通讯录展平成一个 [{id,name,chatType}] 的列表，优先用户组 / 机器人组。
+    const friends = [];
+    (S._book || []).forEach(group => {
+      const typeCode = (group.chat_type != null) ? Number(group.chat_type)
+        : ((group.list_name || '').toString().includes('机器人') ? 3 : 1);
+      ((group.list) || []).forEach(it => {
+        const id = it.friendId || it.friend_id || it.id;
+        if (!id) return;
+        friends.push({
+          id: String(id),
+          name: it.nickname || it.name || `#${id}`,
+          chatType: Number(it.chat_type != null ? it.chat_type : typeCode) || 1,
+        });
+      });
+    });
+    const groupOptions = friends.slice(0, 200).map(f => {
+      const label = (f.chatType === 3 ? '🤖 ' : '👤 ') + f.name + '  #' + f.id;
+      return `<mdui-menu-item value="${window.YHRender.escapeHtml(f.id)}|${f.chatType}">${window.YHRender.escapeHtml(label)}</mdui-menu-item>`;
+    }).join('');
+
+    const dlg = openDialog(`<div style="padding:18px;width:440px;max-width:92vw">
+      <div style="font-size:18px;font-weight:800;margin-bottom:4px">邀请成员进群</div>
+      <div class="yh-contact-sub" style="margin-bottom:14px">目标群：${window.YHRender.escapeHtml(groupName || groupId)}（${window.YHRender.escapeHtml(groupId)}）<br/>按接口要求，chatType 只能是 1（用户）或 3（机器人），邀请前必须已是好友。</div>
+      <mdui-select id="inv-pick" label="从通讯录选择" class="yh-full" style="margin-bottom:10px">
+        <mdui-menu-item value="" disabled${friends.length ? ' selected' : ''}>—— 选择一位好友/机器人 ——</mdui-menu-item>
+        ${groupOptions || '<mdui-menu-item value="">（还未加载通讯录，去联系人页刷新）</mdui-menu-item>'}
+      </mdui-select>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <mdui-text-field id="inv-chat-id" label="或手动输入 chatId" class="yh-grow"></mdui-text-field>
+        <mdui-select id="inv-chat-type" label="chatType" value="1" style="width:160px;flex-shrink:0">
+          <mdui-menu-item value="1">1 - 用户</mdui-menu-item>
+          <mdui-menu-item value="3">3 - 机器人</mdui-menu-item>
+        </mdui-select>
+      </div>
+      <div class="yh-compose-actions" style="margin-top:16px;justify-content:flex-end">
+        <mdui-button variant="text" id="inv-cancel">取消</mdui-button>
+        <mdui-button variant="filled" id="inv-ok">邀请</mdui-button>
+      </div>
+    </div>`);
+
+    // 如果用户从"通讯录选择"选了，自动填充下面的 chatId / chatType，避免手敲。
+    const pickEl = dlg.querySelector('#inv-pick');
+    const chatIdEl = dlg.querySelector('#inv-chat-id');
+    const chatTypeEl = dlg.querySelector('#inv-chat-type');
+    if (pickEl) {
+      pickEl.addEventListener('change', (e) => {
+        const v = e.target.value; if (!v) return;
+        const [fid, ftype] = v.split('|');
+        if (fid) chatIdEl.value = fid;
+        if (ftype) chatTypeEl.value = ftype;
+      });
+    }
+    dlg.querySelector('#inv-cancel').onclick = () => { dlg.open = false; };
+    dlg.querySelector('#inv-ok').onclick = async () => {
+      const chatId = (chatIdEl.value || '').trim();
+      const chatType = Number(chatTypeEl.value || 1);
+      if (!chatId) { snack('请先选择或输入 chatId'); return; }
+      try {
+        await window.YHApi.inviteToGroup({ chatId, chatType, groupId });
+        snack('已发送邀请');
+        dlg.open = false;
+      } catch (e) { snack('邀请失败：' + e.message); }
+    };
   }
 
   // ============ 我的 ============

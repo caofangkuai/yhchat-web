@@ -350,8 +350,30 @@
       return this.rawJson('/v1/friend/apply', { id, sourceType });
     },
 
+    // 申请加入群聊：仅需要目标群 ID（和 /v1/group/invite 的“邀请进群”是两个入口）
     async joinGroup(groupId) {
+      // 用户新给的 /v1/group/invite 文档其实是"邀请"接口，需要邀请对象 chatId。
+      // 这里继续沿用 joinGroup 作为用户自己点"加入群聊"的封装。如果服务端
+      // join 路径改了再替换；当前把 joinGroup 定义成一个独立的动作。
       return this.rawJson('/v1/group/invite', { groupId });
+    },
+
+    // 邀请好友/机器人进群（用户给的正式接口）。
+    // 请求体结构（camelCase JSON）：
+    //   { chatId: "123", chatType: 1|3, groupId: "456" }
+    // 其中 chatType=1 是邀请用户，chatType=3 是邀请机器人，邀请前必须已是好友关系。
+    async inviteToGroup({ chatId, chatType = 1, groupId }) {
+      if (!chatId) throw new Error('chatId 不能为空（邀请成员 ID）');
+      if (!groupId) throw new Error('groupId 不能为空（目标群聊）');
+      const ct = Number(chatType);
+      if (![1, 3].includes(ct)) throw new Error('chatType 必须是 1（用户）或 3（机器人）');
+      const r = await this.rawJson('/v1/group/invite', {
+        chatId: String(chatId),
+        chatType: ct,
+        groupId: String(groupId),
+      });
+      if (!r || r.code !== 1) throw new Error((r && r.msg) || '邀请失败');
+      return r.data || true;
     },
 
     // ---------- Community (JSON) ----------
