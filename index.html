@@ -7,7 +7,10 @@
   <title>云湖 Web · Yhchat</title>
   <link rel="icon" href="data:," />
   <link rel="stylesheet" href="./vendor/mdui.css" />
+  <link rel="stylesheet" href="./vendor/icons.css" />
   <link rel="stylesheet" href="./css/style.css" />
+  <!-- 预加载图标字体（mdui 组件默认 font-family 为 'Material Icons'）-->
+  <link rel="preload" href="./vendor/material-icons.woff2" as="font" type="font/woff2" crossorigin>
 </head>
 
 <body>
@@ -24,7 +27,7 @@
 
       <div class="yh-login-body">
         <div data-panel="token" class="yh-panel">
-          <mdui-text-field id="login-token" label="用户 Token" type="textarea" rows="3"></mdui-text-field>
+          <mdui-text-field id="login-token" label="用户 Token" rows="3"></mdui-text-field>
           <mdui-button id="btn-login-token" class="yh-full">登录</mdui-button>
         </div>
         <div data-panel="phone" class="yh-panel" hidden>
@@ -58,12 +61,12 @@
       <mdui-navigation-rail-item icon="account_circle" value="profile" tooltip="我的">我的</mdui-navigation-rail-item>
     </mdui-navigation-rail>
 
-    <mdui-bottom-navigation id="bottom-nav" class="yh-bottom-nav" value="messages">
-      <mdui-bottom-navigation-item icon="forum" value="messages">消息</mdui-bottom-navigation-item>
-      <mdui-bottom-navigation-item icon="contacts" value="contacts">联系人</mdui-bottom-navigation-item>
-      <mdui-bottom-navigation-item icon="public" value="community">社区</mdui-bottom-navigation-item>
-      <mdui-bottom-navigation-item icon="account_circle" value="profile">我的</mdui-bottom-navigation-item>
-    </mdui-bottom-navigation>
+    <mdui-navigation-bar id="bottom-nav" class="yh-bottom-nav" value="messages">
+      <mdui-navigation-bar-item icon="forum" value="messages">消息</mdui-navigation-bar-item>
+      <mdui-navigation-bar-item icon="contacts" value="contacts">联系人</mdui-navigation-bar-item>
+      <mdui-navigation-bar-item icon="public" value="community">社区</mdui-navigation-bar-item>
+      <mdui-navigation-bar-item icon="account_circle" value="profile">我的</mdui-navigation-bar-item>
+    </mdui-navigation-bar>
 
     <main id="content">
       <!-- 消息 -->
@@ -73,8 +76,8 @@
             <mdui-top-app-bar-title>消息</mdui-top-app-bar-title>
             <div style="flex:1"></div>
             <span id="ws-indicator" title="连接状态" style="width:10px;height:10px;border-radius:50%;background:#f44336;margin:0 8px;display:inline-block"></span>
-            <mdui-icon-button icon="search" id="btn-search"></mdui-icon-button>
-            <mdui-icon-button icon="add" id="btn-new-chat" tooltip="发起会话"></mdui-icon-button>
+            <mdui-button-icon icon="search" id="btn-search"></mdui-button-icon>
+            <mdui-button-icon icon="add" id="btn-new-chat" tooltip="发起会话"></mdui-button-icon>
           </mdui-top-app-bar>
           <div id="conv-list" class="yh-conv-list"></div>
         </aside>
@@ -82,22 +85,22 @@
           <div id="chat-empty" class="yh-chat-empty">选择一个会话开始聊天</div>
           <div id="chat-active" hidden>
             <mdui-top-app-bar class="yh-topbar">
-              <mdui-icon-button icon="arrow_back" id="btn-chat-back" class="yh-only-mobile"></mdui-icon-button>
+              <mdui-button-icon icon="arrow_back" id="btn-chat-back" class="yh-only-mobile"></mdui-button-icon>
               <mdui-avatar id="chat-avatar" style="--size:36px"></mdui-avatar>
               <mdui-top-app-bar-title id="chat-title">会话</mdui-top-app-bar-title>
               <div style="flex:1"></div>
-              <mdui-icon-button icon="more_vert" id="btn-chat-info" tooltip="详情"></mdui-icon-button>
+              <mdui-button-icon icon="more_vert" id="btn-chat-info" tooltip="详情"></mdui-button-icon>
             </mdui-top-app-bar>
             <div id="chat-messages" class="yh-messages"></div>
             <div id="chat-input-bar" class="yh-input-bar">
               <mdui-menu id="attach-menu">
-                <mdui-icon-button icon="add_circle" id="btn-attach" slot="trigger" tooltip="附件"></mdui-icon-button>
+                <mdui-button-icon icon="add_circle" id="btn-attach" slot="trigger" tooltip="附件"></mdui-button-icon>
                 <mdui-menu-item value="img">图片链接</mdui-menu-item>
                 <mdui-menu-item value="file">文件链接</mdui-menu-item>
                 <mdui-menu-item value="audio">语音链接</mdui-menu-item>
                 <mdui-menu-item value="video">视频链接</mdui-menu-item>
               </mdui-menu>
-              <mdui-text-field id="chat-input" class="yh-grow" placeholder="发消息…" type="textarea" rows="1" enterkeyhint="send"></mdui-text-field>
+              <mdui-text-field id="chat-input" class="yh-grow" placeholder="发消息…" rows="1"></mdui-text-field>
               <mdui-button id="btn-send" icon="send">发送</mdui-button>
             </div>
           </div>
@@ -137,9 +140,18 @@
 
   <div id="dialog-host"></div>
 
+  <!-- protobuf / marked 经典脚本：把库挂到 window -->
   <script src="./vendor/protobuf.min.js"></script>
   <script src="./vendor/marked.min.js"></script>
-  <script src="./vendor/mdui.umd.js"></script>
+
+  <!-- mdui 改用 ESM 构建（会自动注册全部自定义元素），并暴露 window.mdui + 派发 mdui-ready -->
+  <script type="module">
+    import * as mdui from './vendor/mdui.esm.js';
+    window.mdui = mdui;
+    window.dispatchEvent(new Event('mdui-ready'));
+  </script>
+
+  <!-- 业务脚本（经典）：只挂全局，不在此处调用 mdui API -->
   <script src="./js/proto.js"></script>
   <script src="./js/api.js"></script>
   <script src="./js/ws.js"></script>

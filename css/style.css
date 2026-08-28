@@ -13,6 +13,15 @@ body {
   overflow: hidden;
 }
 [yh-root], body { -webkit-tap-highlight-color: transparent; }
+/* 保证 HTML 原生 [hidden] 永远隐藏，不被 display:flex/grid 等覆盖 */
+[hidden] { display: none !important; }
+
+/* mdui 图标组件依赖 Material Icons 字体的 ligature，需显式开启 liga */
+mdui-icon, mdui-button-icon, mdui-button, mdui-tab,
+mdui-navigation-bar-item, mdui-navigation-rail-item {
+  font-feature-settings: 'liga';
+  font-variant-ligatures: common-ligatures;
+}
 
 .yh-full { width: 100%; margin-top: 8px; }
 .yh-grow { flex: 1; }

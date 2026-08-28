@@ -1,13 +1,15 @@
 // Yhchat Web - main UI controller
 (function () {
-  const mdui = window.mdui;
+  // 惰性读取 window.mdui —— ESM 模块在 DOMContentLoaded 之后才执行并完成组件注册，
+  // 因此 IIFE 解析时 window.mdui 尚未就绪。这里用 Proxy 转发到 window.mdui。
+  const mdui = new Proxy({}, { get(_, k) { return window.mdui ? window.mdui[k] : undefined; } });
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const CT = window.YHApi.CT;
 
   const S = { profile: null, conversations: [], active: null, messages: [], baList: [], posts: [] };
 
-  function snack(msg, opts) { try { mdui.Snackbar(Object.assign({ message: msg }, opts || {})); } catch (e) { console.warn(e); } }
+  function snack(msg, opts) { try { mdui.snackbar(Object.assign({ message: msg }, opts || {})); } catch (e) { console.warn(e); } }
   function avatarHtml(url, name, size) {
     const sz = size || 40;
     if (url) return `<mdui-avatar src="${window.YHRender.escapeHtml(url)}" style="--size:${sz}px"></mdui-avatar>`;
@@ -512,5 +514,29 @@
 
   // go
   window.YH = { afterLogin, switchView, openChat, loadConversations, renderConversations, renderMessages, S, snack };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+
+  // 显式加载 Material Icons 字体（mdui 2.x shadow DOM 里的图标实际 font-family 为 'Material Icons'）。
+  // 用 FontFace API 比 @font-face 更可靠，能保证 shadow DOM 里的图标渲染为字形。
+  (function loadIconFont() {
+    try {
+      const ff = new FontFace('Material Icons', 'url(./vendor/material-icons.woff2)');
+      ff.load().then(loaded => {
+        document.fonts.add(loaded);
+        document.documentElement.dataset.yhIconFont = 'ready';
+      }).catch(e => console.warn('[yhchat] 图标字体加载失败', e));
+    } catch (e) { console.warn(e); }
+  })();
+
+  // 等待 mdui ESM 注册完成（模块脚本早于 DOMContentLoaded 执行并派发该事件），
+  // 等待 mdui ESM 注册完成（模块脚本早于 DOMContentLoaded 执行并派发该事件），
+  // 且 DOM 解析完毕后再启动。
+  function start() {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init, { once: true });
+    } else {
+      init();
+    }
+  }
+  if (window.mdui) start();
+  else window.addEventListener('mdui-ready', start, { once: true });
 })();
