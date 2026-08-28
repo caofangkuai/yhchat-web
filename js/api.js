@@ -331,8 +331,39 @@
 
     async recallMessage(msgId, chatId, chatType) {
       const r = await this.rawProto('/v1/msg/recall-msg', 'yh_msg.recall_msg_send', 'yh_msg.recall_msg',
-        { msg_id: msgId, chat_id: chatId, chat_type: chatType });
+        { msg_id: String(msgId), chat_id: String(chatId), chat_type: Number(chatType) || 0 });
       if (r.status.code !== 1) throw new Error(r.status.msg || '撤回失败');
+      return true;
+    },
+
+    // 编辑消息：要求 msg_id 对应消息为自己发送，且仅支持 TEXT/MARKDOWN/HTML/FORM
+    // contentType=1/3/8/5/6 (POST)。当前只允许编辑文本类（其他类型 UI 不会展示编辑按钮）
+    async editMessage(msgId, chatId, chatType, { text, markdown, html, formJson, mentionedIds, postId, postTitle, postContent, postType }) {
+      const content = {};
+      let contentType = 1; // TEXT default
+      if (text != null && text !== undefined) { content.text = String(text); contentType = 1; }
+      if (markdown != null) { content.text = String(markdown); contentType = 3; }
+      if (html != null) { content.text = String(html); contentType = 8; }
+      if (formJson != null) {
+        content.form = (typeof formJson === 'string') ? formJson : JSON.stringify(formJson);
+        contentType = 5;
+      }
+      if (postId != null) {
+        content.post_id = String(postId);
+        content.post_title = postTitle || '';
+        content.post_content = postContent || '';
+        content.post_type = postType || '1';
+        contentType = 6;
+      }
+      if (mentionedIds && mentionedIds.length) content.mentioned_id = mentionedIds.map(String);
+      const r = await this.rawProto('/v1/msg/edit-message', 'yh_msg.edit_message_send', 'yh_msg.edit_message_resp', {
+        msg_id: String(msgId),
+        chat_id: String(chatId),
+        chat_type: Number(chatType) || 0,
+        content: content,
+        content_type: contentType
+      });
+      if (r.status.code !== 1) throw new Error(r.status.msg || '编辑失败');
       return true;
     },
 

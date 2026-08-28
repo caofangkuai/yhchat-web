@@ -7,7 +7,15 @@
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const CT = window.YHApi.CT;
 
-  const S = { profile: null, conversations: [], active: null, messages: [], baList: [], posts: [] };
+  const S = { profile: null, conversations: [], active: null, messages: [], baList: [], posts: [],
+    // 当前引用的消息：{ msgId, senderName, previewText, contentType, quoteMsgText, quoteImageUrl, quoteVideoUrl }
+    quoting: null,
+    // 当前编辑的消息：{ msgId, originalText, contentType }
+    editing: null,
+    // 长按去抖：当前激活项的 yh-msg 元素
+    longPressedEl: null,
+    longPressTimer: 0
+  };
 
   function snack(msg, opts) { try { mdui.snackbar(Object.assign({ message: msg }, opts || {})); } catch (e) { console.warn(e); } }
   // 头像内部结构：img 加载失败时自动移除，露出下方首字母兜底；URL 走 mediaUrl 代理规避防盗链
@@ -483,6 +491,264 @@
       try { await window.YHApi.buttonReport(msgId, S.active.chatType, S.active.chatId, b.dataset.value); snack('已提交：' + b.textContent); }
       catch (e) { snack('操作失败：' + e.message); }
     });
+    // 长按 & 右键 消息气泡：弹出 action sheet
+    $$('.yh-msg', box).forEach(el => bindMsgPress(el));
+  }
+
+  // 可编辑消息的 content_type 白名单：TEXT / MARKDOWN / HTML / FORM（文本类）
+  function canEditContentType(ctStr) {
+    const ct = Number(ctStr) || 0;
+    return ct === CT.TEXT || ct === CT.MARKDOWN || ct === CT.HTML || ct === CT.FORM;
+  }
+  function msgDataFromEl(el) {
+    return {
+      msgId: el.dataset.msgId || '',
+      isSelf: el.dataset.isSelf === '1',
+      senderName: el.dataset.senderName || '',
+      senderChatId: el.dataset.senderChatId || '',
+      chatId: el.dataset.chatId || (S.active && S.active.chatId) || '',
+      chatType: Number(el.dataset.chatType) || (S.active && S.active.chatType) || 0,
+      contentType: Number(el.dataset.contentType) || CT.TEXT,
+      text: el.dataset.previewText || '',
+      quoteMsgId: el.dataset.quoteMsgId || '',
+      quoteMsgText: el.dataset.quoteMsgText || '',
+      quoteImageUrl: el.dataset.quoteImageUrl || '',
+      quoteVideoUrl: el.dataset.quoteVideoUrl || ''
+    };
+  }
+  function bindMsgPress(el) {
+    const start = (e, pointFn) => {
+      // 不要在图片/链接上长按误触发：忽略这些节点
+      const t = e.target;
+      if (t.closest && (t.closest('a') || t.closest('button') || t.closest('.yh-img') || t.closest('.yh-a2ui-btn'))) return;
+      const cancel = () => {
+        clearTimeout(S.longPressTimer);
+        S.longPressTimer = 0;
+        if (S.longPressedEl) { S.longPressedEl.classList.remove('yh-msg-active'); S.longPressedEl = null; }
+      };
+      cancel();
+      S.longPressedEl = el;
+      S.longPressTimer = setTimeout(() => {
+        S.longPressTimer = 0;
+        try { if (navigator.vibrate) navigator.vibrate(10); } catch (_) {}
+        el.classList.add('yh-msg-active');
+        openMsgActionSheet(el, pointFn(e));
+      }, 380);
+      // 触摸移动 / 滚动 / 松手 < 380ms 时取消
+      const cleanup = () => { cancel(); el.removeEventListener('touchmove', move); el.removeEventListener('touchend', cleanup); el.removeEventListener('touchcancel', cleanup); el.removeEventListener('mousemove', move); el.removeEventListener('mouseup', cleanup); el.removeEventListener('mouseleave', cleanup); };
+      const move = (ev) => {
+        const p1 = pointFn(ev); const p0 = pointFn(e);
+        if (Math.abs(p1.x - p0.x) + Math.abs(p1.y - p0.y) > 10) cleanup();
+      };
+      el.addEventListener('touchmove', move, { passive: true });
+      el.addEventListener('touchend', cleanup, { passive: true, once: true });
+      el.addEventListener('touchcancel', cleanup, { once: true });
+      el.addEventListener('mousemove', move);
+      el.addEventListener('mouseup', cleanup, { once: true });
+      el.addEventListener('mouseleave', cleanup);
+    };
+    el.addEventListener('touchstart', (e) => start(e, ev => {
+      const t = (ev.touches && ev.touches[0]) || ev;
+      return { x: t.clientX || 0, y: t.clientY || 0 };
+    }), { passive: true });
+    el.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      start(e, ev => ({ x: ev.clientX, y: ev.clientY }));
+    });
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      clearTimeout(S.longPressTimer); S.longPressTimer = 0;
+      if (S.longPressedEl) { S.longPressedEl.classList.remove('yh-msg-active'); }
+      S.longPressedEl = el;
+      el.classList.add('yh-msg-active');
+      openMsgActionSheet(el, { x: e.clientX, y: e.clientY });
+    });
+  }
+
+  function openMsgActionSheet(el, point) {
+    const d = msgDataFromEl(el);
+    // 菜单项 (icon, label, condition(optional), handler)
+    const items = [];
+    items.push({ icon: 'format_quote', label: '引用', fn: () => startQuoting(d) });
+    if (d.text && /^(\[图片\]|\[视频\]|\[语音\]|\[文件\])/.test(d.text) === false) {
+      items.push({ icon: 'content_copy', label: '复制文本', fn: () => copyText(d.text) });
+    } else {
+      items.push({ icon: 'content_copy', label: '复制', fn: () => copyText(d.text || '') });
+    }
+    // 仅自己消息允许编辑/撤销；仅文本类消息允许编辑
+    if (d.isSelf && canEditContentType(d.contentType) && d.text) {
+      items.push({ icon: 'edit', label: '编辑', fn: () => startEditing(d) });
+    }
+    if (d.isSelf) {
+      items.push({ icon: 'delete_sweep', label: '撤销', danger: true, fn: () => doRecall(d) });
+    }
+    if (!items.length) return closeMsgSheet();
+
+    let sheet = document.getElementById('yh-msg-sheet');
+    if (!sheet) {
+      sheet = document.createElement('div');
+      sheet.id = 'yh-msg-sheet';
+      sheet.innerHTML = `
+        <div class="yh-sheet-mask"></div>
+        <div class="yh-sheet-panel" role="dialog" aria-modal="true" aria-label="消息操作">
+          <div class="yh-sheet-anchor"></div>
+          <div class="yh-sheet-actions"></div>
+          <button type="button" class="yh-sheet-cancel">取消</button>
+        </div>`;
+      sheet.querySelector('.yh-sheet-mask').addEventListener('click', closeMsgSheet);
+      sheet.querySelector('.yh-sheet-cancel').addEventListener('click', closeMsgSheet);
+      document.body.appendChild(sheet);
+    }
+    const box = sheet.querySelector('.yh-sheet-actions');
+    box.innerHTML = '';
+    items.forEach(it => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'yh-sheet-item' + (it.danger ? ' danger' : '');
+      b.innerHTML = `<span class="material-symbols-outlined yh-sheet-ico">${it.icon}</span><span class="yh-sheet-lbl">${it.label}</span>`;
+      b.addEventListener('click', () => { closeMsgSheet(); it.fn && it.fn(); });
+      box.appendChild(b);
+    });
+    // 锚定或底部：手机横屏 / 小屏幕走底部 sheet；大屏走锚定到消息下方
+    const isMobile = matchMedia('(max-width: 720px)').matches || matchMedia('(pointer: coarse)').matches;
+    const panel = sheet.querySelector('.yh-sheet-panel');
+    const anchor = sheet.querySelector('.yh-sheet-anchor');
+    panel.classList.toggle('bottom-sheet', isMobile);
+    sheet.hidden = false;
+    requestAnimationFrame(() => sheet.classList.add('open'));
+    if (!isMobile) {
+      const r = el.getBoundingClientRect();
+      const sheetW = 220, sheetH = 60 * items.length + 56;
+      let left = Math.max(8, point.x);
+      let top = Math.min(window.innerHeight - sheetH - 8, r.bottom + 8);
+      if (r.bottom + sheetH > window.innerHeight) top = Math.max(8, r.top - sheetH - 8);
+      if (left + sheetW > window.innerWidth) left = window.innerWidth - sheetW - 8;
+      panel.style.top = top + 'px';
+      panel.style.left = left + 'px';
+    } else {
+      panel.style.top = ''; panel.style.left = '';
+    }
+    anchor.hidden = isMobile;
+  }
+  function closeMsgSheet() {
+    const sheet = document.getElementById('yh-msg-sheet');
+    if (!sheet) return;
+    sheet.classList.remove('open');
+    setTimeout(() => { sheet.hidden = true; }, 180);
+    if (S.longPressedEl) { S.longPressedEl.classList.remove('yh-msg-active'); S.longPressedEl = null; }
+  }
+
+  async function copyText(t) {
+    if (!t) { snack('无文本可复制'); return; }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(t);
+        snack('已复制'); return;
+      }
+    } catch (_) {}
+    // fallback: textarea
+    const ta = document.createElement('textarea');
+    ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); snack('已复制'); }
+    catch { snack('复制失败'); }
+    finally { document.body.removeChild(ta); }
+  }
+
+  // ========== 引用 ==========
+  function startQuoting(d) {
+    S.quoting = {
+      msgId: d.msgId,
+      senderName: d.senderName || '对方',
+      previewText: d.text || '',
+      contentType: d.contentType
+    };
+    // 进入编辑态时，如果本身是引用他人消息的，不会再继承原引用（避免级联嵌套）——
+    // 但如果目标消息本身有 quoteMsgText（是对 A 的引用），把它合并为预览内容里的前缀。
+    if (d.quoteMsgText || d.quoteImageUrl || d.quoteVideoUrl) {
+      const prefix = d.quoteImageUrl ? '[图片]' : (d.quoteVideoUrl ? '[视频]' : (d.quoteMsgText || ''));
+      if (prefix) S.quoting.previewText = (S.quoting.previewText ? S.quoting.previewText : '') +
+        (S.quoting.previewText ? '  \n↩ ' : '') + '引用: ' + prefix;
+    }
+    // 取消可能进行中的编辑态
+    if (S.editing) { S.editing = null; updateActionBar(); }
+    updateActionBar();
+    const inp = $('#chat-input');
+    inp.focus();
+    try { inp.rows = Math.max(1, Math.min(4, inp.value.split('\n').length + 1)); } catch (_) {}
+  }
+  // ========== 编辑 ==========
+  function startEditing(d) {
+    S.editing = { msgId: d.msgId, contentType: d.contentType, originalText: d.text || '' };
+    if (S.quoting) { S.quoting = null; }
+    const inp = $('#chat-input');
+    inp.value = d.text || '';
+    try { inp.rows = Math.max(1, Math.min(4, inp.value.split('\n').length + 1)); } catch (_) {}
+    updateActionBar();
+    inp.focus();
+    // 光标置于末尾
+    const len = inp.value.length;
+    try { if (inp.setSelectionRange) inp.setSelectionRange(len, len); } catch (_) {}
+  }
+  function cancelActionMode() {
+    S.quoting = null; S.editing = null;
+    updateActionBar();
+    const inp = $('#chat-input'); if (inp) inp.value = '';
+  }
+  function updateActionBar() {
+    const bar = $('#chat-action-bar');
+    const preview = $('#chat-action-preview');
+    const sendBtn = $('#btn-send');
+    const saveBtn = $('#btn-edit-save');
+    const inp = $('#chat-input');
+    bar.hidden = !(S.quoting || S.editing);
+    if (S.editing) {
+      const label = S.editing.contentType === CT.MARKDOWN ? '（Markdown）'
+        : (S.editing.contentType === CT.HTML ? '（HTML）' : '');
+      preview.innerHTML = `<div class="yh-ac-title">正在编辑消息 ${label}</div>` +
+        `<div class="yh-ac-text">${window.YHRender.escapeHtml((S.editing.originalText || '').slice(0, 120))}${S.editing.originalText && S.editing.originalText.length > 120 ? '…' : ''}</div>`;
+      sendBtn.hidden = true; saveBtn.hidden = false;
+      inp.setAttribute('placeholder', '编辑消息内容…');
+    } else if (S.quoting) {
+      preview.innerHTML = `<div class="yh-ac-title">回复 ${window.YHRender.escapeHtml(S.quoting.senderName)} ${S.quoting.msgId ? `<span class="yh-ac-mid">#${window.YHRender.escapeHtml(String(S.quoting.msgId).slice(-6))}</span>` : ''}</div>` +
+        `<div class="yh-ac-text">${window.YHRender.escapeHtml((S.quoting.previewText || '').slice(0, 120))}${S.quoting.previewText && S.quoting.previewText.length > 120 ? '…' : ''}</div>`;
+      sendBtn.hidden = false; saveBtn.hidden = true;
+      inp.setAttribute('placeholder', '回复消息…');
+    } else {
+      sendBtn.hidden = false; saveBtn.hidden = true;
+      inp.setAttribute('placeholder', '发消息…');
+    }
+  }
+
+  async function saveEdit() {
+    if (!S.editing || !S.active) return;
+    const inp = $('#chat-input');
+    const text = inp.value;
+    // 没改就算了
+    if (text === S.editing.originalText) { cancelActionMode(); snack('未修改'); return; }
+    const ct = Number(S.editing.contentType) || CT.TEXT;
+    const opts = {};
+    if (ct === CT.MARKDOWN) opts.markdown = text;
+    else if (ct === CT.HTML) opts.html = text;
+    // FORM 暂不开放编辑（要保留 JSON 完整性，直接当文本改太危险），强行回落 TEXT 编辑
+    else opts.text = text;
+    try {
+      await window.YHApi.editMessage(S.editing.msgId, S.active.chatId, S.active.chatType, opts);
+      snack('已编辑');
+      cancelActionMode();
+      await loadMessages(S.active.chatId, S.active.chatType);
+    } catch (e) { snack('编辑失败：' + e.message); }
+  }
+
+  async function doRecall(d) {
+    if (!d.isSelf) { snack('只能撤销自己的消息'); return; }
+    const ok = confirm(`确定要撤销这条消息吗？\n${(d.text || '').slice(0, 60)}${d.text && d.text.length > 60 ? '…' : ''}`);
+    if (!ok) return;
+    try {
+      await window.YHApi.recallMessage(d.msgId, S.active.chatId, S.active.chatType);
+      snack('已撤销');
+      if (S.active) await loadMessages(S.active.chatId, S.active.chatType);
+    } catch (e) { snack('撤销失败：' + e.message); }
   }
 
   function openImage(url) {
@@ -495,12 +761,18 @@
   // ============ 发送 ============
   function bindChat() {
     $('#btn-send').onclick = sendText;
+    const saveBtn = $('#btn-edit-save'); if (saveBtn) saveBtn.onclick = saveEdit;
+    const cancelBtn = $('#chat-action-cancel'); if (cancelBtn) cancelBtn.onclick = cancelActionMode;
     const input = $('#chat-input');
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); }
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        // 编辑态 Enter = 保存；引用态 Enter = 立即发送含引用
+        e.preventDefault();
+        if (S.editing) saveEdit(); else sendText();
+      }
     });
     input.addEventListener('input', () => { if (S.active) window.YHWs.sendDraft(S.active.chatId, input.value); });
-    $('#btn-chat-back').onclick = () => { $('#view-messages').classList.remove('chat-open'); S.active = null; renderConversations(); };
+    $('#btn-chat-back').onclick = () => { $('#view-messages').classList.remove('chat-open'); S.active = null; cancelActionMode(); renderConversations(); };
     $('#btn-chat-info').onclick = () => { if (S.active) showDetail(S.active.chatType, S.active.chatId, S.active.name); };
     $('#btn-search').onclick = openSearch;
     $('#btn-new-chat').onclick = openSearch;
@@ -529,17 +801,31 @@
 
   async function sendText() {
     const input = $('#chat-input');
-    const text = input.value.trim();
-    if (!text || !S.active) return;
-    await sendPayload({ text, contentType: CT.TEXT });
+    const text = input.value;
+    // 引用态允许空 text 发送（"纯引用"提醒），编辑态必须有文字
+    if (S.editing) {
+      // sendText 在编辑态不触发保存（点 Enter 会走 saveEdit）；若误进这里直接返回
+      return;
+    }
+    if (!S.quoting && !text.trim()) return;
+    if (!S.active) return;
+    await sendPayload({ text: text.trim(), contentType: CT.TEXT });
     input.value = '';
+    try { input.rows = 1; } catch (_) {}
   }
 
   async function sendPayload(opts) {
     if (!S.active) return;
     const payload = Object.assign({ chatId: S.active.chatId, chatType: S.active.chatType }, opts);
+    // 引用态：自动贴 quoteMsgId + quoteMsgText
+    if (S.quoting) {
+      payload.quoteMsgId = S.quoting.msgId;
+      if (!payload.quoteMsgText) payload.quoteMsgText = S.quoting.previewText || '';
+    }
     try {
       await window.YHApi.sendMessage(payload);
+      // 发送成功后清除引用态；编辑态不走这里（走 saveEdit）
+      S.quoting = null; updateActionBar();
       // 重新拉取最新消息以显示自己发出内容
       await loadMessages(S.active.chatId, S.active.chatType);
     } catch (e) { snack('发送失败：' + e.message); }

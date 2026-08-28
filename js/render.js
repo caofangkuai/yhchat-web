@@ -126,6 +126,29 @@
     const el = document.createElement('div');
     el.className = 'yh-msg ' + (isSelf ? 'self' : 'other');
     el.dataset.msgId = msg.msg_id || '';
+    // 长按/右键菜单用：让 UI 层从 DOM 就能反查消息内容，不用保存另一份 ref map
+    el.dataset.isSelf = isSelf ? '1' : '0';
+    el.dataset.senderName = msg.sender ? (msg.sender.name || '') : '';
+    el.dataset.chatId = msg.chat_id || '';
+    el.dataset.chatType = String(msg.chat_type || '');
+    el.dataset.contentType = String(msg.content_type || 1);
+    el.dataset.senderChatId = msg.sender ? (msg.sender.chat_id || '') : '';
+    // 预览文本（用于复制文本 / 引用预览 / 编辑态回填文本）
+    const c = msg.content || {};
+    let previewText = c.text || '';
+    if (!previewText) {
+      if (c.image) previewText = '[图片]';
+      else if (c.video) previewText = '[视频]';
+      else if (c.audio) previewText = '[语音]';
+      else if (c.file) previewText = '[文件] ' + (c.file_name || '');
+      else if (c.post_id) previewText = '[帖子] ' + (c.post_title || '');
+      else if (c.expression_id) previewText = '[表情]';
+    }
+    el.dataset.previewText = previewText;
+    if (c.quote_msg_text) el.dataset.quoteMsgText = c.quote_msg_text;
+    if (c.quote_image_url) el.dataset.quoteImageUrl = c.quote_image_url;
+    if (c.quote_video_url) el.dataset.quoteVideoUrl = c.quote_video_url;
+    if (msg.quote_msg_id) el.dataset.quoteMsgId = msg.quote_msg_id;
 
     // quote block
     if (msg.quote_msg_id && (msg.content.quote_msg_text || msg.content.quote_image_url || msg.content.quote_video_url)) {

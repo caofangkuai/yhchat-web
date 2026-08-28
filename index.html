@@ -8,7 +8,7 @@
   <link rel="icon" href="data:," />
   <link rel="stylesheet" href="./vendor/mdui.css" />
   <link rel="stylesheet" href="./vendor/icons.css" />
-  <link rel="stylesheet" href="./css/style.css" />
+  <link rel="stylesheet" href="./css/style.css?v=5" />
   <!-- 预加载图标字体（mdui 组件默认 font-family 为 'Material Icons'）-->
   <link rel="preload" href="./vendor/material-icons.woff2" as="font" type="font/woff2" crossorigin>
 </head>
@@ -92,20 +92,28 @@
               <mdui-button-icon icon="more_vert" id="btn-chat-info" tooltip="详情"></mdui-button-icon>
             </mdui-top-app-bar>
             <div id="chat-messages" class="yh-messages"></div>
-            <div id="chat-input-bar" class="yh-input-bar">
-              <!-- 用户要求：把“图片链接 / 文件链接 / 语音链接 / 视频链接”几个条目
-                   从原来的 mdui-menu（点按钮展开菜单项）改成一个统一的下拉
-                   选择框（select）。这样不需要多点一下“+”按钮，选了就直接
-                   弹出输入 URL 的 prompt，操作更短，在 PC / 手机上行为也一致。 -->
-              <select id="attach-select" class="yh-attach-select" aria-label="插入链接附件">
-                <option value="" disabled selected>🔗 链接…</option>
-                <option value="img">图片链接</option>
-                <option value="file">文件链接</option>
-                <option value="audio">语音链接</option>
-                <option value="video">视频链接</option>
-              </select>
-              <mdui-text-field id="chat-input" class="yh-grow" placeholder="发消息…" rows="1"></mdui-text-field>
-              <mdui-button id="btn-send" icon="send">发送</mdui-button>
+            <div id="chat-input-wrap" class="yh-input-wrap">
+              <!-- 正在引用 / 正在编辑：顶部提示条 -->
+              <div id="chat-action-bar" class="yh-action-bar" hidden>
+                <div id="chat-action-preview" class="yh-action-preview"></div>
+                <mdui-button-icon id="chat-action-cancel" icon="close" tooltip="取消" aria-label="取消"></mdui-button-icon>
+              </div>
+              <div id="chat-input-bar" class="yh-input-bar">
+                <!-- 用户要求：把“图片链接 / 文件链接 / 语音链接 / 视频链接”几个条目
+                     从原来的 mdui-menu（点按钮展开菜单项）改成一个统一的下拉
+                     选择框（select）。这样不需要多点一下“+”按钮，选了就直接
+                     弹出输入 URL 的 prompt，操作更短，在 PC / 手机上行为也一致。 -->
+                <select id="attach-select" class="yh-attach-select" aria-label="插入链接附件">
+                  <option value="" disabled selected>🔗 链接…</option>
+                  <option value="img">图片链接</option>
+                  <option value="file">文件链接</option>
+                  <option value="audio">语音链接</option>
+                  <option value="video">视频链接</option>
+                </select>
+                <mdui-text-field id="chat-input" class="yh-grow" placeholder="发消息…" rows="1"></mdui-text-field>
+                <mdui-button id="btn-send" icon="send">发送</mdui-button>
+                <mdui-button id="btn-edit-save" icon="save" hidden style="background:var(--mdui-color-primary-container)">保存</mdui-button>
+              </div>
             </div>
           </div>
         </div>
@@ -172,11 +180,11 @@
        - 新消息类型（conversation_list_send、request_list_send 等）不存在
        - protobuf.js keepCase 修复不生效 → 请求体字段名不匹配 → 编码 0 字节 → 抓包"无请求体"
        通过带 cache-bust query 强制重新拉取；后续改 proto 或 api 时 bump 后缀即可。 -->
-  <script src="./js/proto.js?v=4"></script>
-  <script src="./js/api.js?v=4"></script>
-  <script src="./js/ws.js?v=4"></script>
-  <script src="./js/render.js?v=4"></script>
-  <script src="./js/ui.js?v=4"></script>
+  <script src="./js/proto.js?v=5"></script>
+  <script src="./js/api.js?v=5"></script>
+  <script src="./js/ws.js?v=5"></script>
+  <script src="./js/render.js?v=5"></script>
+  <script src="./js/ui.js?v=5"></script>
 </body>
 
 </html>
