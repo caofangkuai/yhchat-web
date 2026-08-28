@@ -9,12 +9,24 @@
     EXPRESSION: 7, HTML: 8, VIDEO: 10, AUDIO: 11, A2UI: 14
   };
 
+  // 生成 UUID：优先用 crypto.randomUUID（需 secure context），不可用时回退到
+  // getRandomValues + 手动拼接。这样在 http://<IP> 等非安全上下文也能正常初始化。
+  function uuid() {
+    try { if (crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID(); } catch (e) {}
+    const b = crypto && typeof crypto.getRandomValues === 'function'
+      ? crypto.getRandomValues(new Uint8Array(16))
+      : Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
+    b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+    const h = [...b].map(x => x.toString(16).padStart(2, '0'));
+    return `${h.slice(0,4).join('')}-${h.slice(4,6).join('')}-${h.slice(6,8).join('')}-${h.slice(8,10).join('')}-${h.slice(10,16).join('')}`;
+  }
+
   const YHApi = {
     BASE,
     CT,
     token: localStorage.getItem('yh_token') || null,
     userId: localStorage.getItem('yh_uid') || null,
-    deviceId: localStorage.getItem('yh_did') || (localStorage.setItem('yh_did', crypto.randomUUID()), localStorage.getItem('yh_did')),
+    deviceId: localStorage.getItem('yh_did') || (localStorage.setItem('yh_did', uuid()), localStorage.getItem('yh_did')),
 
     // 图片/视频等媒体防盗链代理。chat-img*.jwznb.com 的 CDN 校验 Referer 必须为
     // *.jwzhd.com（官方 App 用 OkHttp 拦截器加 Referer，浏览器 <img> 无法自定义该头）。
@@ -157,7 +169,33 @@
     async listConversations() {
       const r = await this.rawProto('/v1/conversation/list', null, 'yh_conversation.ConversationList', {});
       if (r.status.code !== 1) throw new Error(r.status.msg || '获取会话失败');
-      return r.data;
+      // protobuf.js 解码出的字段是 snake_case，而 ui 全程用 camelCase 访问
+      // （conv.chatId / conv.chatType / conv.timestampMs …）。若直接返回 r.data，
+      // 所有属性都是 undefined → openChat 时传 chatId=undefined → list-message 找不到会话返回空。
+      // int64 字段（timestamp_ms 等）可能以 Long 对象或 number/string 形式返回，统一转成 number。
+      const num = v => {
+        if (v == null) return 0;
+        if (typeof v === 'number') return v;
+        if (typeof v === 'object' && typeof v.toNumber === 'function') return v.toNumber();
+        const n = Number(v);
+        return isNaN(n) ? 0 : n;
+      };
+      return (r.data || []).map(d => ({
+        chatId: d.chat_id,
+        chatType: d.chat_type,
+        name: d.name,
+        chatContent: d.chat_content,
+        timestampMs: num(d.timestamp_ms),
+        unreadMessage: d.unread_message,
+        at: d.at,
+        avatarId: num(d.avatar_id),
+        avatarUrl: d.avatar_url,
+        doNotDisturb: d.do_not_disturb,
+        sendTimestamp: num(d.timestamp),
+        atData: d.at_data,
+        certificationLevel: d.certification_level,
+        _raw: d,
+      }));
     },
 
     async dismissNotification(chatId) {
@@ -259,7 +297,8 @@
     },
 
     async addressBook() {
-      const r = await this.rawProto('/v1/friend/address-book-list', 'yh_user.address_book_list_send', 'yh_user.address_book_list', { number: '0' });
+      // 请求字段为 md5（与 API 文档 AddressBookListRequest.md5 一致），传空字符串表示首次拉取
+      const r = await this.rawProto('/v1/friend/address-book-list', 'yh_user.address_book_list_send', 'yh_user.address_book_list', { md5: '' });
       if (r.status.code !== 1) throw new Error(r.status.msg || '获取通讯录失败');
       return r.data;
     },

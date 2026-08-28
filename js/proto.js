@@ -497,21 +497,24 @@ message edit_avatar {
 }
 
 message address_book_list_send {
-    string number = 2;
+    string md5 = 2;
 }
 
 message address_book_list {
     Status status = 1;
     repeated Data data = 2;
+    string md5 = 3;
     message Data {
         string list_name = 1;
         repeated Data_list data = 2;
+        int32 chat_type = 3;
         message Data_list {
             string chat_id = 1;
-            string name = 2;
+            string remark = 2;
             string avatar_url = 3;
             int32 permisson_level = 4;
-            bool noDisturb = 5;
+            bool no_disturb = 5;
+            string name = 8;
         }
     }
 }

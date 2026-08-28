@@ -12,7 +12,20 @@
   function on(evt, cb) { (listeners[evt] = listeners[evt] || []).push(cb); }
   function emit(evt, data) { (listeners[evt] || []).forEach(cb => { try { cb(data); } catch (e) { console.error(e); } }); }
 
-  function uuid() { return crypto.randomUUID().replace(/-/g, ''); }
+  function uuid() {
+    // crypto.randomUUID 需要 secure context，http://<IP> 下不可用，提供回退实现。
+    let u;
+    try { if (crypto && typeof crypto.randomUUID === 'function') u = crypto.randomUUID(); } catch (e) {}
+    if (!u) {
+      const b = crypto && typeof crypto.getRandomValues === 'function'
+        ? crypto.getRandomValues(new Uint8Array(16))
+        : Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
+      b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+      const h = [...b].map(x => x.toString(16).padStart(2, '0')).join('');
+      u = `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20,32)}`;
+    }
+    return u.replace(/-/g, '');
+  }
 
   function send(obj) {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));

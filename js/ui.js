@@ -414,33 +414,35 @@
   }
   function renderAddressBook(book) {
     const body = $('#contacts-body'); body.innerHTML = '';
-    // 通讯录按 list_name 分类展示。list_name 的取值由服务端决定（如"好友""群聊""机器人"等），
-    // 此前硬编码匹配三个固定字符串，若服务端返回值不同则全部被跳过 → 显示"暂无联系人"。
-    // 改为：按 list_name 模式推断 chat_type，无法识别的也照常展示（默认 chat_type=1）。
+    // 通讯录按 list_name 分类展示。服务端在 AddressBookListResponse.Data.chat_type 字段（field 3）
+    // 直接给出类别（1=用户 2=群聊 3=机器人），优先使用它；若缺失则按 list_name 文案推断。
     function inferType(ln) {
       const s = (ln || '').toLowerCase();
       if (s.includes('群') || s.includes('group')) return 2;
       if (s.includes('机器') || s.includes('bot')) return 3;
-      return 1; // 默认按好友/用户处理
+      return 1;
     }
     const map = new Map(); // key = list_name, value = { label, t, items }
     (book || []).forEach(group => {
       const ln = group.list_name || '联系人';
-      const key = ln;
-      if (!map.has(key)) map.set(key, { label: ln, t: inferType(ln), items: [] });
-      const cat = map.get(key);
+      // group.chat_type 由 proto.js 解析（int32），无则为 0 -> 用 list_name 推断
+      const t = group.chat_type ? group.chat_type : inferType(ln);
+      if (!map.has(ln)) map.set(ln, { label: ln, t, items: [] });
+      const cat = map.get(ln);
       (group.data || group.DataList || []).forEach(it => cat.items.push(it));
     });
-    // 按类型排序：好友(1) → 群聊(2) → 机器人(3) → 其他
+    // 按类型排序：用户(1) → 群聊(2) → 机器人(3) → 其他
     const cats = [...map.values()].sort((a, b) => a.t - b.t);
     cats.forEach(cat => {
       if (!cat.items.length) return;
       const g = document.createElement('div'); g.className = 'yh-contact-group';
       g.innerHTML = `<div class="yh-cat-head">${window.YHRender.escapeHtml(cat.label)}（${cat.items.length}）</div>`;
       cat.items.forEach(it => {
+        // proto.js 修正后：name 在 field 8（真实名称），remark 在 field 2（备注名）。优先显示备注名，无则用真实名。
+        const display = it.remark || it.name || '';
         const el = document.createElement('div'); el.className = 'yh-contact-item';
-        el.innerHTML = `${avatarHtml(it.avatar_url, it.name, 42)}<div><div class="yh-contact-name">${window.YHRender.escapeHtml(it.name || '')}</div><div class="yh-contact-sub">${typeName(cat.t)}</div></div>`;
-        el.onclick = () => openChat({ chatId: it.chat_id, chatType: cat.t, name: it.name, avatarUrl: it.avatar_url });
+        el.innerHTML = `${avatarHtml(it.avatar_url, display, 42)}<div><div class="yh-contact-name">${window.YHRender.escapeHtml(display)}</div><div class="yh-contact-sub">${typeName(cat.t)}</div></div>`;
+        el.onclick = () => openChat({ chatId: it.chat_id, chatType: cat.t, name: display, avatarUrl: it.avatar_url });
         g.appendChild(el);
       });
       body.appendChild(g);
