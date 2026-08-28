@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>云湖 Web · Yhchat</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="./vendor/mdui.css" />
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+
+<body>
+  <!-- ============ 登录页 ============ -->
+  <div id="login-view" class="yh-login">
+    <div class="yh-login-card">
+      <div class="yh-login-logo">云湖</div>
+      <div class="yh-login-sub">Yhchat Web 客户端</div>
+      <mdui-tabs id="login-tabs" value="token" class="yh-login-tabs">
+        <mdui-tab value="token">Token</mdui-tab>
+        <mdui-tab value="phone">手机号</mdui-tab>
+        <mdui-tab value="email">邮箱</mdui-tab>
+      </mdui-tabs>
+
+      <div class="yh-login-body">
+        <div data-panel="token" class="yh-panel">
+          <mdui-text-field id="login-token" label="用户 Token" type="textarea" rows="3"></mdui-text-field>
+          <mdui-button id="btn-login-token" class="yh-full">登录</mdui-button>
+        </div>
+        <div data-panel="phone" class="yh-panel" hidden>
+          <img id="login-captcha" class="yh-captcha" alt="验证码" />
+          <mdui-text-field id="login-captcha-code" label="图片验证码"></mdui-text-field>
+          <mdui-text-field id="login-phone" label="手机号"></mdui-text-field>
+          <div class="yh-row">
+            <mdui-text-field id="login-sms" label="短信验证码" class="yh-grow"></mdui-text-field>
+            <mdui-button id="btn-sms" variant="outlined">获取</mdui-button>
+          </div>
+          <mdui-button id="btn-login-phone" class="yh-full">登录</mdui-button>
+        </div>
+        <div data-panel="email" class="yh-panel" hidden>
+          <mdui-text-field id="login-email" label="邮箱" type="email"></mdui-text-field>
+          <mdui-text-field id="login-pwd" label="密码" type="password"></mdui-text-field>
+          <mdui-button id="btn-login-email" class="yh-full">登录</mdui-button>
+        </div>
+      </div>
+      <div id="login-error" class="yh-error" hidden></div>
+      <div class="yh-login-foot">纯前端实现 · 数据来自云湖官方接口</div>
+    </div>
+  </div>
+
+  <!-- ============ 主界面 ============ -->
+  <div id="main-view" hidden>
+    <!-- 左侧导航栏（桌面）/ 底部导航（手机） -->
+    <mdui-navigation-rail id="rail" class="yh-rail">
+      <mdui-navigation-rail-item icon="forum" value="messages" tooltip="消息">消息</mdui-navigation-rail-item>
+      <mdui-navigation-rail-item icon="contacts" value="contacts" tooltip="联系人">联系人</mdui-navigation-rail-item>
+      <mdui-navigation-rail-item icon="public" value="community" tooltip="社区">社区</mdui-navigation-rail-item>
+      <mdui-navigation-rail-item icon="account_circle" value="profile" tooltip="我的">我的</mdui-navigation-rail-item>
+    </mdui-navigation-rail>
+
+    <mdui-bottom-navigation id="bottom-nav" class="yh-bottom-nav" value="messages">
+      <mdui-bottom-navigation-item icon="forum" value="messages">消息</mdui-bottom-navigation-item>
+      <mdui-bottom-navigation-item icon="contacts" value="contacts">联系人</mdui-bottom-navigation-item>
+      <mdui-bottom-navigation-item icon="public" value="community">社区</mdui-bottom-navigation-item>
+      <mdui-bottom-navigation-item icon="account_circle" value="profile">我的</mdui-bottom-navigation-item>
+    </mdui-bottom-navigation>
+
+    <main id="content">
+      <!-- 消息 -->
+      <section id="view-messages" class="view yh-view-messages">
+        <aside id="conv-list-pane" class="yh-conv-pane">
+          <mdui-top-app-bar class="yh-topbar">
+            <mdui-top-app-bar-title>消息</mdui-top-app-bar-title>
+            <div style="flex:1"></div>
+            <span id="ws-indicator" title="连接状态" style="width:10px;height:10px;border-radius:50%;background:#f44336;margin:0 8px;display:inline-block"></span>
+            <mdui-icon-button icon="search" id="btn-search"></mdui-icon-button>
+            <mdui-icon-button icon="add" id="btn-new-chat" tooltip="发起会话"></mdui-icon-button>
+          </mdui-top-app-bar>
+          <div id="conv-list" class="yh-conv-list"></div>
+        </aside>
+        <div id="chat-pane" class="yh-chat-pane">
+          <div id="chat-empty" class="yh-chat-empty">选择一个会话开始聊天</div>
+          <div id="chat-active" hidden>
+            <mdui-top-app-bar class="yh-topbar">
+              <mdui-icon-button icon="arrow_back" id="btn-chat-back" class="yh-only-mobile"></mdui-icon-button>
+              <mdui-avatar id="chat-avatar" style="--size:36px"></mdui-avatar>
+              <mdui-top-app-bar-title id="chat-title">会话</mdui-top-app-bar-title>
+              <div style="flex:1"></div>
+              <mdui-icon-button icon="more_vert" id="btn-chat-info" tooltip="详情"></mdui-icon-button>
+            </mdui-top-app-bar>
+            <div id="chat-messages" class="yh-messages"></div>
+            <div id="chat-input-bar" class="yh-input-bar">
+              <mdui-menu id="attach-menu">
+                <mdui-icon-button icon="add_circle" id="btn-attach" slot="trigger" tooltip="附件"></mdui-icon-button>
+                <mdui-menu-item value="img">图片链接</mdui-menu-item>
+                <mdui-menu-item value="file">文件链接</mdui-menu-item>
+                <mdui-menu-item value="audio">语音链接</mdui-menu-item>
+                <mdui-menu-item value="video">视频链接</mdui-menu-item>
+              </mdui-menu>
+              <mdui-text-field id="chat-input" class="yh-grow" placeholder="发消息…" type="textarea" rows="1" enterkeyhint="send"></mdui-text-field>
+              <mdui-button id="btn-send" icon="send">发送</mdui-button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 联系人 -->
+      <section id="view-contacts" class="view yh-view-contacts" hidden>
+        <mdui-top-app-bar class="yh-topbar">
+          <mdui-top-app-bar-title>联系人</mdui-top-app-bar-title>
+        </mdui-top-app-bar>
+        <mdui-tabs id="contacts-tabs" value="book" class="yh-subtabs">
+          <mdui-tab value="book">好友/群聊</mdui-tab>
+          <mdui-tab value="requests">好友请求</mdui-tab>
+        </mdui-tabs>
+        <div id="contacts-body" class="yh-scroll"></div>
+      </section>
+
+      <!-- 社区 -->
+      <section id="view-community" class="view yh-view-community" hidden>
+        <mdui-top-app-bar class="yh-topbar">
+          <mdui-top-app-bar-title>社区</mdui-top-app-bar-title>
+        </mdui-top-app-bar>
+        <div id="community-ba" class="yh-ba-list yh-scroll"></div>
+        <div id="community-posts" class="yh-posts yh-scroll" hidden></div>
+      </section>
+
+      <!-- 我的 -->
+      <section id="view-profile" class="view yh-view-profile" hidden>
+        <mdui-top-app-bar class="yh-topbar">
+          <mdui-top-app-bar-title>我的</mdui-top-app-bar-title>
+        </mdui-top-app-bar>
+        <div id="profile-body" class="yh-scroll"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="dialog-host"></div>
+
+  <script src="./vendor/protobuf.min.js"></script>
+  <script src="./vendor/marked.min.js"></script>
+  <script src="./vendor/mdui.umd.js"></script>
+  <script src="./js/proto.js"></script>
+  <script src="./js/api.js"></script>
+  <script src="./js/ws.js"></script>
+  <script src="./js/render.js"></script>
+  <script src="./js/ui.js"></script>
+</body>
+
+</html>
