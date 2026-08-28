@@ -504,13 +504,27 @@
     $('#btn-chat-info').onclick = () => { if (S.active) showDetail(S.active.chatType, S.active.chatId, S.active.name); };
     $('#btn-search').onclick = openSearch;
     $('#btn-new-chat').onclick = openSearch;
-    $('#attach-menu').addEventListener('change', (e) => {
-      const kind = e.target.value; if (!kind || !S.active) return;
-      const map = { img: ['图片链接', CT.IMAGE, 'image'], file: ['文件链接', CT.FILE, 'file'], audio: ['语音链接', CT.AUDIO, 'audio'], video: ['视频链接', CT.VIDEO, 'video'] };
-      const [label, ct, field] = map[kind];
-      const url = prompt('输入' + label + '（直链 URL）：');
-      if (url) sendPayload({ [field]: url, contentType: ct });
-    });
+    // 聊天输入栏左边：把“图片链接 / 文件链接 / 语音链接 / 视频链接”改成一个
+    // <select> 下拉（见 index.html）。点“+”展开菜单项的路径不再使用。
+    const attachSel = $('#attach-select');
+    if (attachSel) {
+      attachSel.addEventListener('change', (e) => {
+        const kind = e.target.value;
+        // 无论用户点了哪个，最后都复位到占位选项，下次还能重复选同一个
+        e.target.value = '';
+        if (!kind || !S.active) return;
+        const map = {
+          img: ['图片链接', CT.IMAGE, 'image'],
+          file: ['文件链接', CT.FILE, 'file'],
+          audio: ['语音链接', CT.AUDIO, 'audio'],
+          video: ['视频链接', CT.VIDEO, 'video'],
+        };
+        const [label, ct, field] = map[kind] || [];
+        if (!label) return;
+        const url = prompt('输入' + label + '（直链 URL）：');
+        if (url) sendPayload({ [field]: url, contentType: ct });
+      });
+    }
   }
 
   async function sendText() {

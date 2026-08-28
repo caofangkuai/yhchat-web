@@ -193,6 +193,47 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
 }
 .yh-input-bar mdui-text-field { --mdui-shape-corner: 18px; }
 
+/* 聊天输入栏左侧的“链接…（图片/文件/语音/视频）”下拉选择框
+   —— 替换原来的 mdui-menu + add_circle 按钮，行为更直接。 */
+.yh-attach-select {
+  appearance: none; -webkit-appearance: none; -moz-appearance: none;
+  align-self: stretch;
+  padding: 0 30px 0 12px;
+  min-height: 44px;
+  border-radius: 22px;
+  background: rgb(var(--mdui-color-surface-container-high));
+  color: rgb(var(--mdui-color-on-surface));
+  border: 1px solid rgb(var(--mdui-color-outline-variant));
+  font-size: 14px; line-height: 1.2;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease;
+  /* 下拉箭头：内联 SVG，避免图片资源 */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23444' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px 16px;
+  max-width: 140px;
+}
+.yh-attach-select:hover {
+  background-color: rgb(var(--mdui-color-surface-container-highest));
+}
+.yh-attach-select:focus {
+  outline: none;
+  border-color: rgb(var(--mdui-color-primary));
+  box-shadow: 0 0 0 2px rgb(var(--mdui-color-primary) / .18);
+}
+@media (max-width: 839px) {
+  /* 手机端更紧凑，否则药丸形输入框配 select 显得太挤 */
+  .yh-attach-select {
+    min-height: 42px;
+    padding: 0 28px 0 10px;
+    max-width: 108px;
+    font-size: 13px;
+    border-radius: 21px;
+  }
+}
+
 /* 气泡 */
 .yh-msg { display: flex; max-width: 78%; }
 .yh-msg.other { align-self: flex-start; }

@@ -93,13 +93,17 @@
             </mdui-top-app-bar>
             <div id="chat-messages" class="yh-messages"></div>
             <div id="chat-input-bar" class="yh-input-bar">
-              <mdui-menu id="attach-menu">
-                <mdui-button-icon icon="add_circle" id="btn-attach" slot="trigger" tooltip="附件"></mdui-button-icon>
-                <mdui-menu-item value="img">图片链接</mdui-menu-item>
-                <mdui-menu-item value="file">文件链接</mdui-menu-item>
-                <mdui-menu-item value="audio">语音链接</mdui-menu-item>
-                <mdui-menu-item value="video">视频链接</mdui-menu-item>
-              </mdui-menu>
+              <!-- 用户要求：把“图片链接 / 文件链接 / 语音链接 / 视频链接”几个条目
+                   从原来的 mdui-menu（点按钮展开菜单项）改成一个统一的下拉
+                   选择框（select）。这样不需要多点一下“+”按钮，选了就直接
+                   弹出输入 URL 的 prompt，操作更短，在 PC / 手机上行为也一致。 -->
+              <select id="attach-select" class="yh-attach-select" aria-label="插入链接附件">
+                <option value="" disabled selected>🔗 链接…</option>
+                <option value="img">图片链接</option>
+                <option value="file">文件链接</option>
+                <option value="audio">语音链接</option>
+                <option value="video">视频链接</option>
+              </select>
               <mdui-text-field id="chat-input" class="yh-grow" placeholder="发消息…" rows="1"></mdui-text-field>
               <mdui-button id="btn-send" icon="send">发送</mdui-button>
             </div>
