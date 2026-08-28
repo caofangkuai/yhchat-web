@@ -49,25 +49,39 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
 /* ============ 主布局 ============ */
 #main-view { position: fixed; inset: 0; display: flex; overflow: hidden; }
 /* 桌面端左侧 navigation-rail：显式固定宽度并声明 max-width，防止 mdui 在
-   shadow DOM 中算出异常宽度（300+ px）直接把右侧 content 挤出视口。 */
+   shadow DOM 中算出异常宽度（300+ px）直接把右侧 content 挤出视口。
+   再加 contain:strict / max-width 锁死几何，并把 rail 所有外部视觉溢出裁掉，
+   避免 ripple / shadow 把内容区"看起来"盖住。 */
 .yh-rail {
   display: flex;
-  width: 80px; max-width: 80px; min-width: 80px;
-  flex-shrink: 0;
-  /* 让 rail 自己承担 shadow DOM 顶部间距/边距，不因为它的额外 padding 推歪右侧 content */
+  width: 80px !important;
+  max-width: 80px !important;
+  min-width: 80px !important;
+  flex: 0 0 80px !important;
+  flex-shrink: 0 !important;
   box-sizing: border-box;
+  padding: 0 !important;
+  overflow: hidden !important;
+  /* 让 rail 的 shadow DOM 不参与外部尺寸推断，防止它的 ::part 或内部布局
+     推高/推宽 #main-view，间接让右侧 content 的第一列被 rail 自己覆盖。 */
+  contain: layout size style paint;
 }
 .yh-bottom-nav { display: none; }
 #content {
-  flex: 1; position: relative; min-width: 0;
-  /* 最关键的一句：rail 是 flex 兄弟、content 是"剩余宽度"，一旦 rail 的 shadow DOM
-     有 overflow、margin 或自定义 --mdui 尺寸推高自己，就会把 content 的右侧推到
-     视口外 → 加 overflow:hidden 保证 content 在自己的宽度里裁剪；内部的
-     .view/.yh-messages 再自己滚动，不会出现"toolbar 右边内容被挡/右侧滚不到"。 */
+  flex: 1 1 auto;
+  position: relative; min-width: 0;
   overflow: hidden;
-  /* 给个显式高度约束，避免子项 min-height:auto 把整个区撑高（此时 topbar sticky
-     不生效）。 */
   height: 100vh;
+  /* 关键兜底：即使 rail 的 shadow DOM 实测 80px 内仍有 1~2px 视觉边距溢出，
+     content 左侧加 2px 视觉内边距，保证会话列表 / 聊天内容第一个像素不会
+     跟 rail 的阴影/ripple 叠在一起。 */
+  padding: 0;
+  /* 再给内部 view 一个"左侧安全区"，比 rail 宽多 4px 保险： */
+}
+#content > .view {
+  /* 防 rail 视觉溢出 + 某些高分屏 rail + content 边界产生 1px 叠加时左侧内容不
+     会被切。因为 view 是绝对定位，padding 不影响内部 width=100% 的顶栏宽度。 */
+  left: 0; right: 0; top: 0; bottom: 0;
 }
 .view {
   position: absolute; inset: 0; display: flex; flex-direction: column;
@@ -75,13 +89,11 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
 }
 
 /* mdui TopAppBar（small 型）标准高度约 64px。
-   之前用 sticky 导致的问题：
-   - sticky 要求"最近可滚动祖先"存在；否则 mdui 自己实现的 shadow DOM 顶栏会按
-     fixed 样式定位，但其 containing block 是 <view> 而不是 #content，在 PC 端
-     rail + content 的双栏布局下，会出现"顶栏宽于 content"的情况，直接把右侧
-     chat-pane 的 20~64px 盖住 → 头像/发送按钮/滚动条看不见。
-   修复：顶栏用 static（flex-shrink:0 + 固定高度）。它就是 flex column 的第一
-   行，下面滚动区自然从它下方开始，完全不会遮挡兄弟节点。 */
+   - 关键：顶栏必须完全在 .view / #content 这个 containing block 内部，不可再按
+     viewport 宽度展开（否则会在 PC 端 rail + content 双栏里被 rail 推到右边）。
+     用 max-width:100% + 限制自身容器宽度 + contain 保证顶栏不会超过父 view。
+   - 即便父用 static，mdui shadow DOM 内部仍可能用 sticky / fixed，这里强制
+     将顶栏约束在父 view 的宽度里。 */
 :root { --yh-topbar-h: 64px; }
 .yh-topbar {
   position: static;
@@ -89,8 +101,20 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
   min-height: var(--yh-topbar-h); height: var(--yh-topbar-h);
   flex-shrink: 0;
   width: 100%;
+  max-width: 100% !important;
   box-sizing: border-box;
   overflow: hidden;
+  /* mdui 内部会写 inline --size / padding，这里再锁一遍，防止 shadow DOM 展开超
+     过 view 宽度把右边缘叠到 chat-pane。 */
+  contain: layout paint style;
+}
+/* 若某些父级 view 的顶栏仍因为 mdui shadow DOM 的 sticky 发生错位，给它一个
+   "真实可用的最大宽度"约束：绝不超过父 view 的 content-box 宽度。 */
+.yh-conv-pane > .yh-topbar,
+.yh-chat-pane > .yh-topbar,
+.view > .yh-topbar {
+  left: 0 !important;
+  right: 0 !important;
 }
 /* mdui-subtabs / yh-subtabs 紧跟顶栏时，内容（列表/滚动区）起点一定要在其下方，
    否则 tabs 会叠在列表最上面一行，造成首项"消失"（被 toolbar + tabs 覆盖）。 */
@@ -101,18 +125,35 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
 
 /* 消息：双栏（PC）
    两个 pane 的宽度 + overflow 约束到位，就不会出现"聊天窗右侧被顶栏/rail 压住"。
-   - 左边会话列表 320px，不压缩
-   - 右边 chat-pane 占剩余空间（flex:1），最小宽高 0，内部自己滚动 */
+   - 会话列表和聊天窗的顶栏分别作用在各自 pane 宽度内，不会借用兄弟 pane 的宽度
+   - 给 pane 内所有子元素都加 max-width:100% 的硬性兜底，防 mdui shadow DOM 超出 */
 .yh-view-messages { flex-direction: row; min-width: 0; min-height: 0; }
 .yh-conv-pane {
-  width: 320px; max-width: 320px; min-width: 280px; flex-shrink: 0;
+  width: 320px; max-width: 320px !important; min-width: 280px; flex-shrink: 0;
   border-right: 1px solid rgb(var(--mdui-color-outline-variant));
   display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  /* 防止会话列表里第一列被左侧 rail 的视觉阴影/ripple 遮住 */
+  padding: 0;
+  contain: layout size;
 }
-.yh-conv-list { flex: 1; overflow-y: auto; min-height: 0; }
+/* 会话列表每一项左侧留出 2px 视觉安全边，避免紧贴 rail 时被其阴影盖住最左边的竖线 */
+.yh-conv-list {
+  flex: 1; overflow-y: auto; min-height: 0;
+  padding: 0 0 0 2px;
+  box-sizing: border-box;
+}
 .yh-chat-pane {
   flex: 1; display: flex; flex-direction: column;
   min-width: 0; min-height: 0; overflow: hidden;
+  /* PC 端用户最容易看到的"右侧被顶栏遮住"：chat-pane 内部加一层 contain，
+     防止聊天顶栏 shadow DOM 超出自身宽度后把 pane 右边缘内容"看起来少一块"。 */
+  contain: layout size;
+}
+/* 聊天窗：避免内部宽度/滚动条溢出，右侧至少留出 6px 视觉安全区 */
+.yh-messages,
+#chat-messages {
+  padding-right: max(8px, 0.3em);
+  box-sizing: border-box;
 }
 /* 空会话提示 */
 .yh-empty-tip {
@@ -197,8 +238,24 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
 .yh-ba-card { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 14px; background: rgb(var(--mdui-color-surface-container)); cursor: pointer; }
 .yh-ba-card:hover { background: rgb(var(--mdui-color-surface-container-high)); }
 .yh-ba-meta { flex: 1; min-width: 0; }
-.yh-ba-title { font-weight: 700; }
-.yh-ba-desc { font-size: 12px; color: rgb(var(--mdui-color-on-surface-variant)); }
+.yh-ba-title { font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.yh-ba-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgb(var(--mdui-color-primary-container));
+  color: rgb(var(--mdui-color-on-primary-container));
+  opacity: .9;
+}
+.yh-ba-desc { font-size: 12px; color: rgb(var(--mdui-color-on-surface-variant)); line-height: 1.7; }
+.yh-ba-desc code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgb(var(--mdui-color-surface-container-high));
+  color: rgb(var(--mdui-color-on-surface));
+}
 .yh-contact-item { display: flex; align-items: center; gap: 12px; padding: 8px 6px; cursor: pointer; }
 .yh-contact-item:hover { background: rgb(var(--mdui-color-surface-container)); border-radius: 12px; }
 .yh-contact-name { font-weight: 600; }
@@ -231,7 +288,42 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
 .yh-post-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .yh-post-card-title { font-weight: 700; font-size: 16px; }
 .yh-post-card-text { font-size: 14px; line-height: 1.6; max-height: 6.5em; overflow: hidden; }
-.yh-post-card-stats { display: flex; gap: 16px; font-size: 12px; color: rgb(var(--mdui-color-on-surface-variant)); margin-top: 8px; }
+.yh-post-card-stats {
+  display: flex; gap: 16px; font-size: 12px; color: rgb(var(--mdui-color-on-surface-variant));
+  margin-top: 8px; align-items: center; justify-content: space-between;
+}
+
+/* "发送到…" 下拉选择框：替代原来的"发送到 xxx"一堆链接 */
+.yh-send-to-wrap { display: inline-flex; align-items: center; flex-shrink: 0; }
+.yh-send-to-inline { margin-left: auto; }
+.yh-send-to-detail { margin-left: auto; }
+.yh-send-to-select {
+  appearance: none; -webkit-appearance: none; -moz-appearance: none;
+  background: rgb(var(--mdui-color-surface-container-high));
+  color: rgb(var(--mdui-color-on-surface));
+  border: 1px solid rgb(var(--mdui-color-outline-variant));
+  border-radius: 999px;
+  padding: 4px 26px 4px 10px;
+  font-size: 12px; line-height: 1.4;
+  cursor: pointer;
+  /* 下拉箭头，用内联 SVG，避免引入图片资源 */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px 12px;
+  max-width: 220px;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+.yh-send-to-select:hover {
+  background-color: rgb(var(--mdui-color-surface-container-highest));
+}
+.yh-send-to-select:focus {
+  outline: none;
+  border-color: rgb(var(--mdui-color-primary));
+  box-shadow: 0 0 0 2px rgb(var(--mdui-color-primary) / .18);
+}
+/* 卡片上的下拉更紧凑 */
+.yh-send-to-inline .yh-send-to-select { max-width: 160px; font-size: 12px; padding-top: 2px; padding-bottom: 2px; }
 
 .yh-profile { padding: 20px 16px; text-align: center; }
 .yh-profile-name { font-size: 22px; font-weight: 800; margin: 10px 0 4px; }

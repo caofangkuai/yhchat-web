@@ -50,6 +50,122 @@
     });
   }
 
+  // ============ "发送到 xxx" 统一改为下拉选择框 ============
+  // 用于：推荐文章列表卡片、分区文章列表、帖子详情顶栏。
+  // 渲染：一个 native <select>（下拉），选项来自 S.conversations（最近一次拉取的会话列表）
+  // + "刷新会话列表" 占位 + 手动输入 chat_id 的兜底。
+  function renderSendToSelect(variant, post, opts) {
+    const ph = window.YHRender.escapeHtml((opts && opts.placeholder) || '发送到会话…');
+    const suffix = (post && post.id) ? String(post.id) : '';
+    const cls = variant === 'inline' ? 'yh-send-to-inline' : 'yh-send-to-detail';
+    // 先渲染空 select；bindSendToSelect 会在 bind 阶段用异步拉到的会话列表填充 <option>。
+    return `
+      <span class="yh-send-to-wrap ${cls}" data-post-id="${window.YHRender.escapeHtml(suffix || '')}">
+        <select class="yh-send-to-select" aria-label="${ph}">
+          <option value="" disabled selected>${ph}</option>
+          <option value="__load__">⟳ 加载会话列表…</option>
+        </select>
+      </span>`;
+  }
+
+  // 将 (S.conversations + 兜底) 填进容器内所有 .yh-send-to-select，并绑定 change 事件发送 POST 卡片。
+  function bindSendToSelect(container, postInfo) {
+    if (!container) return;
+    const selects = container.querySelectorAll && container.querySelectorAll('.yh-send-to-select');
+    if (!selects || !selects.length) return;
+
+    const fillOptions = (sel, list) => {
+      const current = sel.value;
+      const ph = sel.querySelector('option[disabled]');
+      const placeholder = ph ? ph.textContent : '发送到会话…';
+      const opts = [`<option value="" disabled${sel.selectedIndex === 0 || !current ? ' selected' : ''}>${placeholder}</option>`];
+      // 最多 30 个最近会话，按当前 S.conversations 顺序（置顶+时间倒序）
+      (list || S.conversations || []).slice(0, 50).forEach(c => {
+        const id = c.chatId || c.chat_id || ''; if (!id) return;
+        const label = ((c.chatType == 2 || c.chat_type == 2) ? '👥 ' : '👤 ')
+          + (c.name || '(无标题)')
+          + (c.unreadMessage ? `  [${c.unreadMessage}]` : '');
+        // chatType 编码到 value，用 | 分隔，避免新增属性
+        const ct = (c.chatType != null) ? c.chatType : (c.chat_type != null ? c.chat_type : 0);
+        opts.push(`<option value="${window.YHRender.escapeHtml(id)}|${ct}|${window.YHRender.escapeHtml(c.name || '')}">${window.YHRender.escapeHtml(label)}</option>`);
+      });
+      opts.push('<option value="__manual__">✎ 手动输入 chat_id…</option>');
+      sel.innerHTML = opts.join('');
+    };
+
+    const sendToConv = async (chatId, chatType, chatName) => {
+      if (!chatId) { snack('请选择目标会话'); return; }
+      try {
+        await window.YHApi.sendMessage({
+          chatId,
+          chatType: (chatType == null || chatType === '') ? 0 : Number(chatType) || 0,
+          contentType: window.YHApi.CT.POST,
+          postId: String(postInfo.postId == null ? '' : postInfo.postId),
+          postTitle: postInfo.postTitle || '',
+          postContent: postInfo.postContent || '',
+          postType: String((postInfo.postType == null ? 1 : postInfo.postType) || 1),
+        });
+        snack(`已发送到 ${chatName || chatId}`);
+      } catch (e) { snack('发送失败：' + e.message); }
+    };
+
+    selects.forEach(sel => {
+      // 如果已经有会话列表，立刻填充一次（避免让用户每次点"加载"）
+      if (S.conversations && S.conversations.length) fillOptions(sel, S.conversations);
+      sel.addEventListener('change', async () => {
+        const v = sel.value;
+        if (!v) return;
+        if (v === '__load__') {
+          // 重新拉会话列表并回填
+          try {
+            snack('正在加载会话列表…');
+            await window.YH.loadConversations && window.YH.loadConversations();
+            // 若 S.conversations 还是空，兜底走 listConversations
+            if ((!S.conversations || !S.conversations.length) && window.YHApi && window.YHApi.listConversations) {
+              try { S.conversations = await window.YHApi.listConversations(); } catch (_) {}
+            }
+            fillOptions(sel, S.conversations);
+          } catch (e) { snack('加载会话失败：' + e.message); }
+          return;
+        }
+        if (v === '__manual__') {
+          // 用 mdui 原生 dialog 让用户输入 chat_id + 可选 chat_type
+          mdui.dialog({
+            headline: '发送到会话（手动）',
+            description: '如果会话列表还没加载到，可以手动填写。chat_type：1=私聊 2=群聊 4=机器人',
+            content: `
+              <mdui-text-field label="chat_id" id="man-chat-id" class="yh-compose-field"></mdui-text-field>
+              <mdui-select label="chat_type" id="man-chat-type" value="1" class="yh-compose-field">
+                <mdui-menu-item value="1">1 - 私聊</mdui-menu-item>
+                <mdui-menu-item value="2">2 - 群聊</mdui-menu-item>
+                <mdui-menu-item value="4">4 - 机器人</mdui-menu-item>
+              </mdui-select>`,
+            actions: [
+              { text: '取消' },
+              {
+                text: '发送', onClick: async (d) => {
+                  const idEl = d.querySelector('#man-chat-id');
+                  const typeEl = d.querySelector('#man-chat-type');
+                  const chatId = idEl ? idEl.value.trim() : '';
+                  const chatType = typeEl ? Number(typeEl.value || 1) : 1;
+                  if (!chatId) { snack('chat_id 不能为空'); return; }
+                  await sendToConv(chatId, chatType, '手动输入');
+                }
+              },
+            ]
+          });
+          // 恢复默认占位选项（让用户下次仍可再次选择"手动输入"）
+          sel.value = '';
+          return;
+        }
+        // 常规选项 value 格式: chatId|chatType|name
+        const [chatId, ct, name] = v.split('|');
+        sel.value = '';
+        await sendToConv(chatId, ct, name);
+      });
+    });
+  }
+
   // ============ 初始化 ============
   function init() {
     try { window.YHApi.init(); } catch (e) { console.error(e); alert('依赖加载失败：' + e.message); return; }
@@ -563,7 +679,20 @@
     if (!S.baList.length) { box.innerHTML = '<div class="yh-contact-sub" style="padding:14px">暂无分区</div>'; return; }
     S.baList.forEach(ba => {
       const el = document.createElement('div'); el.className = 'yh-ba-card';
-      el.innerHTML = `${avatarHtml(ba.avatar, ba.name, 48)}<div class="yh-ba-meta"><div class="yh-ba-title">${window.YHRender.escapeHtml(ba.name || '')}</div><div class="yh-ba-desc">${ba.memberNum || 0} 成员 · ${ba.postNum || 0} 文章</div></div><mdui-icon-button icon="chevron_right"></mdui-icon-button>`;
+      // 用户要求：每个分区卡片上都显示"分区 ID"，便于发起文章 / 搜索等操作时直接使用。
+      const baIdLabel = (ba && (ba.id || ba.baId || ba.board_area_id || ba.boardId)) != null
+        ? String(ba.id || ba.baId || ba.board_area_id || ba.boardId)
+        : '';
+      el.innerHTML = `${avatarHtml(ba.avatar, ba.name, 48)}
+        <div class="yh-ba-meta">
+          <div class="yh-ba-title">
+            ${window.YHRender.escapeHtml(ba.name || '')}
+            ${baIdLabel ? `<span class="yh-ba-id" title="分区 ID">#${window.YHRender.escapeHtml(baIdLabel)}</span>` : ''}
+          </div>
+          <div class="yh-ba-desc">${ba.memberNum || 0} 成员 · ${ba.postNum || 0} 文章
+            ${baIdLabel ? ` · ID: <code>${window.YHRender.escapeHtml(baIdLabel)}</code>` : ''}
+          </div>
+        </div><mdui-icon-button icon="chevron_right"></mdui-icon-button>`;
       el.onclick = () => openBaDetail(ba.id);
       box.appendChild(el);
     });
@@ -636,8 +765,15 @@
       if (p.contentType === 2) { try { text = window.marked ? window.marked.parse(text) : text; } catch (e) {} text = window.YHRender.sanitizeHtml(text); }
       else text = window.YHRender.escapeHtml(text);
       el.innerHTML = `<div class="yh-post-head">${avatarHtml(p.senderAvatar, author, 32)}<div><div class="yh-post-card-title">${window.YHRender.escapeHtml(p.title || '无标题')}</div><div class="yh-contact-sub">${window.YHRender.escapeHtml(author)} · ${window.YHRender.formatTime(p.createTime)}</div></div></div>
-        <div class="yh-post-card-text">${text}</div><div class="yh-post-card-stats">${stats}</div>`;
-      el.onclick = () => openPost(p.id);
+        <div class="yh-post-card-text">${text}</div><div class="yh-post-card-stats">${stats}${renderSendToSelect('inline', p, { placeholder: '发送到…' })}</div>`;
+      el.onclick = (ev) => {
+        if (ev.target && ev.target.closest && ev.target.closest('.yh-send-to-wrap')) return; // 点到下拉选择框不要跳详情
+        openPost(p.id);
+      };
+      // 绑定"发送到…"下拉
+      bindSendToSelect(el, {
+        postId: p.id, postTitle: p.title, postContent: p.content, postType: p.contentType,
+      });
       box.appendChild(el);
     });
   }
@@ -667,6 +803,7 @@
         <div class="yh-post-detail-back">
           <mdui-button-icon icon="arrow_back" id="pd-back"></mdui-button-icon>
           <span class="yh-post-detail-back-title">文章详情</span>
+          ${renderSendToSelect('detail', post, { placeholder: '发送到会话…' })}
         </div>
         ${avatarHtml(post.senderAvatar, author, 40)}
         <div class="yh-post-detail-meta"><span class="yh-contact-sub">${window.YHRender.escapeHtml(author)}</span></div>
@@ -687,6 +824,10 @@
         </div>
       </div>`;
       box.querySelector('#pd-back').onclick = () => { if (S._baPosts && S._baPosts.length) showCommunityTab('posts'); else loadRecommend(); };
+      // 顶部"发送到会话…"下拉选择框
+      bindSendToSelect(box, {
+        postId: post.id, postTitle: post.title, postContent: post.content, postType: post.contentType,
+      });
       // 评论
       loadComments(postId);
       box.querySelector('#btn-comment').onclick = async () => {
