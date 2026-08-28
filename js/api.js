@@ -288,8 +288,25 @@
       if (opts.quoteVideoTime != null) content.quote_video_time = opts.quoteVideoTime;
       if (opts.mentionedIds && opts.mentionedIds.length) content.mentioned_id = opts.mentionedIds;
 
+      // ⚠️ 服务端对 msgId 格式强校验：接受 32 位小写十六进制字符串（MD5/UUID 去横杠风格）。
+      // 大写/带横杠的 UUID（如 A6DC2FBB-FCF1-…）会返回 code=1100「请求参数错误，msgId字段值非法」。
+      // 用 crypto.randomUUID() 生成后统一 replace(/-/g,'').toLowerCase()，
+      // 在没有 randomUUID 的环境回退到 getRandomValues 拼 32 hex。
+      let mid = '';
+      try {
+        if (crypto && typeof crypto.randomUUID === 'function') {
+          mid = crypto.randomUUID().replace(/-/g, '').toLowerCase();
+        }
+      } catch (_) { mid = ''; }
+      if (!mid) {
+        const b = (crypto && typeof crypto.getRandomValues === 'function')
+          ? crypto.getRandomValues(new Uint8Array(16))
+          : Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
+        mid = [...b].map(x => x.toString(16).padStart(2, '0')).join('');
+      }
+
       const payload = {
-        msg_id: String(crypto.randomUUID ? crypto.randomUUID() : uuid()).toUpperCase(),
+        msg_id: mid,
         chat_id: String(opts.chatId == null ? '' : opts.chatId),
         chat_type: Number(opts.chatType) || 0,
         content: content,
