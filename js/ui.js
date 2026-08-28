@@ -18,12 +18,79 @@
   };
 
   function snack(msg, opts) { try { mdui.snackbar(Object.assign({ message: msg }, opts || {})); } catch (e) { console.warn(e); } }
-  // 头像内部结构：img 加载失败时自动移除，露出下方首字母兜底；URL 走 mediaUrl 代理规避防盗链
+
+  // ============ 头像缓存 ============
+  // 缓存 proxiedUrl → blobUrl/dataUrl，避免同一头像反复从网络加载
+  const _avatarCache = new Map();
+  const _avatarPending = new Set();
+  const _AVATAR_MAX = 500;
+
+  function _setAvatarCache(key, val) {
+    if (_avatarCache.size >= _AVATAR_MAX) {
+      const oldest = _avatarCache.keys().next().value;
+      const oldVal = _avatarCache.get(oldest);
+      if (oldVal && oldVal.startsWith('blob:')) URL.revokeObjectURL(oldVal);
+      _avatarCache.delete(oldest);
+    }
+    _avatarCache.set(key, val);
+  }
+
+  // 异步缓存头像：先试 fetch+blob（需 CORS），失败再试 Image+canvas，都失败则标记不可缓存
+  async function _cacheAvatar(url) {
+    if (_avatarCache.has(url) || _avatarPending.has(url)) return;
+    _avatarPending.add(url);
+    try {
+      const resp = await fetch(url, { mode: 'cors', credentials: 'omit' });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const blob = await resp.blob();
+      if (blob.size > 0 && blob.type.startsWith('image/')) {
+        _setAvatarCache(url, URL.createObjectURL(blob));
+        return;
+      }
+      throw new Error('not image');
+    } catch (e) {
+      try {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = function () {
+            try {
+              const c = document.createElement('canvas');
+              c.width = img.naturalWidth;
+              c.height = img.naturalHeight;
+              c.getContext('2d').drawImage(img, 0, 0);
+              resolve(c.toDataURL());
+            } catch (e) { reject(e); }
+          };
+          img.onerror = () => reject(new Error('img load failed'));
+          img.src = url;
+        });
+        _setAvatarCache(url, dataUrl);
+      } catch (_) {
+        _setAvatarCache(url, url);
+      }
+    } finally {
+      _avatarPending.delete(url);
+    }
+  }
+
+  // 同步查缓存：有缓存用 blobUrl/dataUrl，无缓存触发异步加载并返回原始 URL
+  function _getAvatarSrc(originalUrl) {
+    if (!originalUrl) return '';
+    const proxied = window.YHApi.mediaUrl(originalUrl);
+    if (!proxied) return '';
+    const cached = _avatarCache.get(proxied);
+    if (cached && cached !== proxied) return cached;
+    _cacheAvatar(proxied);
+    return proxied;
+  }
+
+  // 头像内部结构：img 加载失败时自动移除，露出下方首字母兜底；URL 走缓存 + mediaUrl 代理
   function avatarInner(url, name, size) {
     const sz = size || 40;
     const ch = window.YHRender.escapeHtml((name || '?').slice(0, 1));
-    const proxied = url ? window.YHApi.mediaUrl(url) : '';
-    const img = proxied ? `<img src="${window.YHRender.escapeHtml(proxied)}" alt="" onerror="this.remove()">` : '';
+    const src = _getAvatarSrc(url);
+    const img = src ? `<img src="${window.YHRender.escapeHtml(src)}" alt="" onerror="this.remove()">` : '';
     return `${img}<span class="yh-avatar-fb">${ch}</span>`;
   }
   function avatarHtml(url, name, size) {
