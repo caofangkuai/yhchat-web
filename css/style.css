@@ -16,6 +16,28 @@ body {
 /* 保证 HTML 原生 [hidden] 永远隐藏，不被 display:flex/grid 等覆盖 */
 [hidden] { display: none !important; }
 
+/* 项目图标字体是经典 Material Icons（vendor/material-icons.woff2，FontFace 在 ui.js 加载）。
+   只注册字体家族并不会让 `.material-icons` 这个 class 自带 font-family，必须显式写规则。
+   没有这段时：长按键的 format_quote / content_copy / edit / backspace，以及 yh-sheet 图标
+   全部显示为"字面英文单词"，ligature 无效。
+   对齐官方文档：https://developers.google.com/fonts/docs/material_icons */
+.material-icons {
+  font-family: 'Material Icons';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;           /* Preferred icon size */
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
+
 /* mdui 图标组件依赖 Material Icons 字体的 ligature，需显式开启 liga */
 mdui-icon, mdui-button-icon, mdui-button, mdui-tab,
 mdui-navigation-bar-item, mdui-navigation-rail-item {
@@ -471,12 +493,38 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
 /* 评论列表 */
 .yh-comments { margin-top: 16px; border-top: 1px solid rgb(var(--mdui-color-outline-variant)); padding-top: 12px; }
 .yh-comments-title { font-weight: 700; margin-bottom: 10px; }
-.yh-comment { display: flex; gap: 8px; padding: 8px 0; border-bottom: 1px solid rgb(var(--mdui-color-outline-variant) / .4); }
+.yh-comment {
+  display: flex; gap: 8px; padding: 8px 0; border-bottom: 1px solid rgb(var(--mdui-color-outline-variant) / .4);
+  /* 长按/右键触发操作菜单：给用户明确的"可交互"指针，与消息气泡行为对齐。 */
+  cursor: pointer;
+  border-radius: 10px;
+  padding-left: 4px;
+  padding-right: 4px;
+  transition: background-color .12s ease, filter .12s ease, transform .12s ease;
+}
+.yh-comment:hover { background: rgb(var(--mdui-color-surface-container-low)); }
+/* 长按触发时的视觉反馈：与 .yh-msg.yh-msg-active 同款，便于用户感知"已选中"。
+   bindMsgPress 统一给当前长按元素挂 yh-msg-active class，所以这里直接对 .yh-comment.yh-msg-active 写规则即可。 */
+.yh-comment.yh-msg-active {
+  background: rgb(var(--mdui-color-secondary-container) / .35);
+  filter: brightness(0.96) saturate(1.05);
+}
 .yh-comment-main { flex: 1; min-width: 0; }
 .yh-comment-author { font-weight: 600; font-size: 13px; }
 .yh-comment-text { font-size: 14px; word-break: break-word; margin-top: 2px; }
 .yh-comment-meta { font-size: 11px; color: rgb(var(--mdui-color-on-surface-variant)); margin-top: 3px; }
 .yh-comment-input { display: flex; gap: 8px; margin-top: 12px; align-items: flex-end; }
+
+/* 评论"正在回复"引用提示条：与聊天窗的 yh-action-bar 同视觉语言，
+   但容器直接嵌在评论列表上方，用独立的 class 以便微调间距与圆角。 */
+.yh-comment-action-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border: 1px dashed rgb(var(--mdui-color-outline-variant));
+  border-radius: 12px;
+  background: rgb(var(--mdui-color-surface-container-low));
+}
 
 /* 发文弹窗 */
 .yh-compose-field { margin-bottom: 10px; }

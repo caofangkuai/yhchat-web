@@ -523,8 +523,20 @@
     },
 
     async createComment(postId, content, commentId = 0) {
-      const r = await this.rawJson('/v1/community/comment/comment', { postId, commentId, content });
+      // 消息小尾巴：评论是纯文本，发送前把 MSG_SIG 拼到末尾（幂等去重）。
+      // 和 sendMessage 对齐：HTML 风格尾巴这里不用 <br/>，评论只有 TEXT。
+      let text = content;
+      if (this.MSG_SIG) {
+        if (!text.endsWith(this.MSG_SIG)) text = (text ? (text + '\n') : '') + this.MSG_SIG;
+      }
+      const r = await this.rawJson('/v1/community/comment/comment', { postId, commentId, content: text });
       if (!r || r.code !== 1) throw new Error(r.msg || '评论失败');
+      return true;
+    },
+
+    async deleteComment(postId, commentId) {
+      const r = await this.rawJson('/v1/community/comment/delete-comment', { postId, commentId });
+      if (!r || r.code !== 1) throw new Error(r.msg || '删除评论失败');
       return true;
     },
 

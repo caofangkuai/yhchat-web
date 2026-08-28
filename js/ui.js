@@ -501,7 +501,19 @@
     return ct === CT.TEXT || ct === CT.MARKDOWN || ct === CT.HTML || ct === CT.FORM;
   }
   function msgDataFromEl(el) {
+    if (el.dataset.kind === 'comment') {
+      return {
+        kind: 'comment',
+        commentId: el.dataset.commentId || '',
+        postId: el.dataset.postId || (S._lastPostId || ''),
+        isSelf: el.dataset.isSelf === '1',
+        senderName: el.dataset.senderName || '匿名',
+        senderChatId: el.dataset.senderId || '',
+        text: el.dataset.text || ''
+      };
+    }
     return {
+      kind: 'msg',
       msgId: el.dataset.msgId || '',
       isSelf: el.dataset.isSelf === '1',
       senderName: el.dataset.senderName || '',
@@ -567,7 +579,19 @@
 
   function openMsgActionSheet(el, point) {
     const d = msgDataFromEl(el);
-    // 菜单项 (icon, label, condition(optional), handler)
+    // ============ 评论（社区文章） ============
+    if (d.kind === 'comment') {
+      const items = [];
+      // 复制
+      items.push({ icon: 'content_copy', label: '复制文本', fn: () => copyText(d.text || '') });
+      // 回复：任何评论都可以回复（引用 @对方 + commentId 传给 createComment 的 commentId 形参）
+      items.push({ icon: 'reply', label: '回复', fn: () => startCommentReply(d) });
+      // 删除：仅自己
+      if (d.isSelf) items.push({ icon: 'delete', label: '删除', danger: true, fn: () => doDeleteComment(d) });
+      if (!items.length) return closeMsgSheet();
+      renderMsgActionSheet(el, point, items); return;
+    }
+    // ============ 私聊/群聊 消息 ============
     // Material Icons (经典字体) 的正式 ligature 名字要选"该字体实际包含"的条目：
     //   - 引用：format_quote 在 material-icons 里存在（不是 format_quote_outlined）
     //   - 复制：content_copy 存在
@@ -590,14 +614,18 @@
       items.push({ icon: 'backspace', label: '撤销', danger: true, fn: () => doRecall(d) });
     }
     if (!items.length) return closeMsgSheet();
+    renderMsgActionSheet(el, point, items);
+  }
 
+  // 共享 sheet 渲染：从 openMsgActionSheet 消息/评论两条路径抽出来，避免重复代码。
+  function renderMsgActionSheet(el, point, items) {
     let sheet = document.getElementById('yh-msg-sheet');
     if (!sheet) {
       sheet = document.createElement('div');
       sheet.id = 'yh-msg-sheet';
       sheet.innerHTML = `
         <div class="yh-sheet-mask"></div>
-        <div class="yh-sheet-panel" role="dialog" aria-modal="true" aria-label="消息操作">
+        <div class="yh-sheet-panel" role="dialog" aria-modal="true" aria-label="操作">
           <div class="yh-sheet-anchor"></div>
           <div class="yh-sheet-actions"></div>
           <button type="button" class="yh-sheet-cancel">取消</button>
@@ -756,6 +784,41 @@
       snack('已撤销');
       if (S.active) await loadMessages(S.active.chatId, S.active.chatType);
     } catch (e) { snack('撤销失败：' + e.message); }
+  }
+
+  // ========== 评论：回复 / 删除 辅助 ==========
+  function startCommentReply(d) {
+    if (!d.commentId) { snack('目标评论缺失 ID'); return; }
+    S._replyingComment = {
+      commentId: d.commentId,
+      postId: d.postId || S._lastPostId,
+      senderName: d.senderName || '对方',
+      text: d.text || ''
+    };
+    renderCommentActionBar();
+    const inp = document.querySelector('#comment-input');
+    if (inp) { inp.focus(); try { inp.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {} }
+  }
+  async function doDeleteComment(d) {
+    if (!d.isSelf) { snack('只能删除自己的评论'); return; }
+    const ok = confirm(`确定要删除这条评论吗？\n${(d.text || '').slice(0, 80)}${d.text && d.text.length > 80 ? '…' : ''}`);
+    if (!ok) return;
+    try {
+      const postId = d.postId || S._lastPostId;
+      await window.YHApi.deleteComment(postId, d.commentId);
+      snack('已删除');
+      if (postId) await loadComments(postId);
+    } catch (e) { snack('删除失败：' + e.message); }
+  }
+  function renderCommentActionBar() {
+    const bar = document.querySelector('#comment-action-bar');
+    const preview = document.querySelector('#comment-action-preview');
+    if (!bar || !preview) return;
+    const r = S._replyingComment;
+    if (!r) { bar.hidden = true; return; }
+    bar.hidden = false;
+    preview.innerHTML = `<div class="yh-ac-title">回复 ${window.YHRender.escapeHtml(r.senderName || '对方')}</div>` +
+      `<div class="yh-ac-text">${window.YHRender.escapeHtml((r.text || '').slice(0, 120))}${r.text && r.text.length > 120 ? '…' : ''}</div>`;
   }
 
   function openImage(url) {
@@ -1127,6 +1190,8 @@
     box.innerHTML = '<div style="padding:18px;text-align:center">加载中…</div>';
     showCommunityTab('post-detail');
     box.scrollTop = 0;
+    // 记录当前 postId，评论长按菜单里的回复/删除 需要知道是在哪个 post 上下文
+    S._lastPostId = postId;
     try {
       const data = await window.YHApi.postDetail(postId);
       const post = (data && data.post) || {};
@@ -1152,25 +1217,65 @@
           ${ba.name ? `<button class="yh-post-act" data-act="ba" data-ba="${ba.id}">${window.YHRender.escapeHtml(ba.name)}</button>` : ''}
           ${isMine ? `<button class="yh-post-act is-danger" data-act="delete" data-id="${post.id}">删除</button>` : ''}
         </div>
-        <div class="yh-comments" id="post-comments"><div class="yh-comments-title">评论</div><div id="comment-list">加载中…</div>
+        <div class="yh-comments" id="post-comments">
+          <div class="yh-comments-title">评论</div>
+          <!-- 评论回复引用条：和聊天界面的引用提示条同款视觉 -->
+          <div id="comment-action-bar" class="yh-comment-action-bar" hidden>
+            <div id="comment-action-preview" class="yh-action-preview"></div>
+            <mdui-button-icon id="comment-action-cancel" icon="close" tooltip="取消回复" size="small"></mdui-button-icon>
+          </div>
+          <div id="comment-list">加载中…</div>
           <div class="yh-comment-input">
             <mdui-text-field id="comment-input" class="yh-grow" placeholder="写评论…" rows="1"></mdui-text-field>
             <mdui-button id="btn-comment" icon="send">发送</mdui-button>
           </div>
         </div>
       </div>`;
-      box.querySelector('#pd-back').onclick = () => { if (S._baPosts && S._baPosts.length) showCommunityTab('posts'); else loadRecommend(); };
+      box.querySelector('#pd-back').onclick = () => {
+        S._replyingComment = null; renderCommentActionBar();
+        if (S._baPosts && S._baPosts.length) showCommunityTab('posts'); else loadRecommend();
+      };
       // 顶部"发送到会话…"下拉选择框
       bindSendToSelect(box, {
         postId: post.id, postTitle: post.title, postContent: post.content, postType: post.contentType,
       });
-      // 评论
+      // 评论：初始化引用态
+      S._replyingComment = null;
+      renderCommentActionBar();
       loadComments(postId);
-      box.querySelector('#btn-comment').onclick = async () => {
-        const inp = box.querySelector('#comment-input'); const v = inp.value.trim();
-        if (!v) return;
-        try { await window.YHApi.createComment(postId, v); inp.value = ''; snack('评论成功'); loadComments(postId); }
-        catch (e) { snack(e.message); }
+
+      const doSendComment = async () => {
+        const inp = box.querySelector('#comment-input');
+        const raw = inp.value;
+        const replyTo = S._replyingComment || null;
+        const replyCommentId = replyTo ? Number(replyTo.commentId) || 0 : 0;
+        let finalText = raw;
+        // 贴 @对方 前缀（常见论坛风格），如果用户已经手写了就不重复
+        if (replyTo && replyTo.senderName) {
+          const at = '@' + replyTo.senderName;
+          if (finalText.trim() && !finalText.trim().startsWith(at + ' ') && !finalText.trim().startsWith(at + '\n')) {
+            finalText = at + ' ' + finalText;
+          } else if (!finalText.trim()) {
+            finalText = at;
+          }
+        }
+        // 纯空内容（既没写也没选回复目标）就不发
+        if (!finalText.trim() && !replyCommentId) return;
+        try {
+          await window.YHApi.createComment(postId, finalText, replyCommentId);
+          inp.value = ''; S._replyingComment = null; renderCommentActionBar();
+          snack('评论成功'); loadComments(postId);
+        } catch (e) { snack(e.message); }
+      };
+      box.querySelector('#btn-comment').onclick = doSendComment;
+      const commentInp = box.querySelector('#comment-input');
+      commentInp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+          e.preventDefault(); doSendComment();
+        }
+      });
+      box.querySelector('#comment-action-cancel').onclick = () => {
+        S._replyingComment = null; renderCommentActionBar();
       };
       // 点赞/收藏
       box.querySelector('[data-act="like"]').onclick = async (e) => {
@@ -1201,13 +1306,27 @@
       const data = await window.YHApi.commentList(postId, 1, 20);
       const comments = (data && data.comments) || [];
       if (!comments.length) { box.innerHTML = '<div class="yh-contact-sub">暂无评论</div>'; return; }
-      box.innerHTML = comments.map(c => `<div class="yh-comment">
+      const myId = String(window.YHApi.userId || '');
+      box.innerHTML = comments.map(c => {
+        const senderId = String(c.senderId || c.sender_userid || c.senderUserId || '');
+        const isSelf = senderId === myId;
+        // 把评论发送者字段、postId、正文全部写进 dataset，UI 层不需要回查数组
+        return `<div class="yh-comment" data-kind="comment"
+             data-post-id="${window.YHRender.escapeHtml(String(postId))}"
+             data-comment-id="${window.YHRender.escapeHtml(String(c.id))}"
+             data-sender-name="${window.YHRender.escapeHtml(c.senderNickname || '匿名')}"
+             data-sender-id="${window.YHRender.escapeHtml(senderId)}"
+             data-is-self="${isSelf ? '1' : '0'}"
+             data-text="${window.YHRender.escapeHtml(c.content || '')}">
         ${avatarHtml(c.senderAvatar, c.senderNickname, 28)}
         <div class="yh-comment-main">
           <div class="yh-comment-author">${window.YHRender.escapeHtml(c.senderNickname || '匿名')}</div>
           <div class="yh-comment-text">${window.YHRender.escapeHtml(c.content || '')}</div>
           <div class="yh-comment-meta">${window.YHRender.formatTime(c.createTime)} · ${c.likeNum || 0} 赞</div>
-        </div></div>`).join('');
+        </div></div>`;
+      }).join('');
+      // 给每条评论绑定长按/右键 → 评论 action sheet
+      $$('#comment-list .yh-comment', box).forEach(el => bindMsgPress(el));
     } catch (e) { box.innerHTML = '<div class="yh-contact-sub">评论加载失败</div>'; }
   }
 
