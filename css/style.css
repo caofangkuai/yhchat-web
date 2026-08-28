@@ -686,6 +686,30 @@ mdui-dialog::part(panel) {
 .yh-ba-detail { text-align: center; padding: 18px; }
 .yh-ba-detail-meta { font-size: 13px; color: rgb(var(--mdui-color-on-surface-variant)); margin: 6px 0 12px; }
 
+/* 桌面端上下文菜单（右键/长按消息弹出）：无遮罩，紧凑 MD3 风格 */
+.yh-ctx-menu {
+  position: fixed;
+  z-index: 2000;
+  background: rgb(var(--mdui-color-surface-container-high));
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.2), 0 2px 8px rgba(0,0,0,.08);
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transform: scale(.92);
+  transform-origin: top left;
+  transition: opacity .12s ease, transform .12s ease;
+}
+.yh-ctx-menu.open { opacity: 1; transform: none; }
+.yh-ctx-menu[hidden] { display: none; }
+.yh-ctx-menu .yh-sheet-item { padding: 8px 14px; border-radius: 8px; }
+
+/* 社区无限滚动加载指示器 */
+.yh-scroll-sentinel { padding: 16px; text-align: center; }
+.yh-scroll-loading { font-size: 13px; color: rgb(var(--mdui-color-on-surface-variant)); }
+
 /* ============ 桌面端增强 ============ */
 @media (min-width: 840px) {
   /* 自定义滚动条：更细更优雅 */

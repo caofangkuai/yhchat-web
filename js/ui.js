@@ -14,7 +14,15 @@
     editing: null,
     // 长按去抖：当前激活项的 yh-msg 元素
     longPressedEl: null,
-    longPressTimer: 0
+    longPressTimer: 0,
+    // 社区分页状态
+    _commPage: { recommend: 0, mine: 0, posts: 0 },
+    _commLoading: false,
+    _commHasMore: { recommend: true, mine: true, posts: true },
+    _baDetailId: null,
+    // 消息定时刷新
+    _msgTimer: 0,
+    _convTimer: 0
   };
 
   function snack(msg, opts) { try { mdui.snackbar(Object.assign({ message: msg }, opts || {})); } catch (e) { console.warn(e); } }
@@ -384,6 +392,8 @@
     $('#bottom-nav').addEventListener('change', e => go(e.target.value));
   }
   function switchView(v) {
+    // 离开消息页时停止后台刷新
+    if (v !== 'messages') stopMsgRefresh();
     // 更新侧边栏 active 状态
     $$('#sidebar .yh-sidebar-item').forEach(item => {
       item.classList.toggle('active', item.dataset.view === v);
@@ -495,6 +505,7 @@
     conv.unreadMessage = 0;
     try { await window.YHApi.dismissNotification(conv.chatId); } catch (e) {}
     await loadMessages(conv.chatId, conv.chatType);
+    startMsgRefresh();
   }
 
   async function loadMessages(chatId, chatType) {
@@ -514,6 +525,37 @@
       S.messages = ordered.map(m => window.YHWs ? normalizeRest(m) : m);
       renderMessages();
     } catch (e) { snack('获取消息失败：' + e.message); }
+  }
+
+  // ============ 消息/会话后台定时刷新 ============
+  function startMsgRefresh() {
+    stopMsgRefresh();
+    // 每 15 秒拉取一次最新消息（WS 断线时的兜底）
+    S._msgTimer = setInterval(refreshMessages, 15000);
+    // 每 30 秒刷新会话列表（更新未读数 / 最新消息预览）
+    S._convTimer = setInterval(() => { if (S.active || S.conversations.length) loadConversations(); }, 30000);
+  }
+  function stopMsgRefresh() {
+    if (S._msgTimer) { clearInterval(S._msgTimer); S._msgTimer = 0; }
+    if (S._convTimer) { clearInterval(S._convTimer); S._convTimer = 0; }
+  }
+  // 后台静默拉取新消息：与已有列表去重后追加
+  async function refreshMessages() {
+    if (!S.active) return;
+    try {
+      const msgs = await window.YHApi.getMessages(S.active.chatId, S.active.chatType, 30);
+      const existingIds = new Set(S.messages.map(m => m.msg_id));
+      const newMsgs = (msgs || []).filter(m => !existingIds.has(m.msg_id))
+        .map(m => window.YHWs ? normalizeRest(m) : m);
+      if (!newMsgs.length) return;
+      // 按时间升序排列
+      newMsgs.sort((a, b) => {
+        const ta = (a && (a.send_time || a.msg_seq || 0)) * 1 || 0;
+        const tb = (b && (b.send_time || b.msg_seq || 0)) * 1 || 0;
+        return ta - tb;
+      });
+      newMsgs.forEach(m => appendMessage(m));
+    } catch (e) { /* 后台刷新静默失败 */ }
   }
 
   function normalizeRest(m) {
@@ -703,8 +745,11 @@
     renderMsgActionSheet(el, point, items);
   }
 
-  // 共享 sheet 渲染：从 openMsgActionSheet 消息/评论两条路径抽出来，避免重复代码。
+  // 共享 sheet 渲染：桌面端走右键式上下文菜单；移动端走底部 sheet
   function renderMsgActionSheet(el, point, items) {
+    const isDesktop = !matchMedia('(pointer: coarse)').matches && matchMedia('(min-width: 840px)').matches;
+    if (isDesktop) return renderDesktopMenu(el, point, items);
+    // ---- 移动端：底部 sheet ----
     let sheet = document.getElementById('yh-msg-sheet');
     if (!sheet) {
       sheet = document.createElement('div');
@@ -730,32 +775,62 @@
       b.addEventListener('click', () => { closeMsgSheet(); it.fn && it.fn(); });
       box.appendChild(b);
     });
-    // 锚定或底部：手机横屏 / 小屏幕走底部 sheet；大屏走锚定到消息下方
-    const isMobile = matchMedia('(max-width: 720px)').matches || matchMedia('(pointer: coarse)').matches;
-    const panel = sheet.querySelector('.yh-sheet-panel');
-    const anchor = sheet.querySelector('.yh-sheet-anchor');
-    panel.classList.toggle('bottom-sheet', isMobile);
     sheet.hidden = false;
     requestAnimationFrame(() => sheet.classList.add('open'));
-    if (!isMobile) {
-      const r = el.getBoundingClientRect();
-      const sheetW = 220, sheetH = 60 * items.length + 56;
-      let left = Math.max(8, point.x);
-      let top = Math.min(window.innerHeight - sheetH - 8, r.bottom + 8);
-      if (r.bottom + sheetH > window.innerHeight) top = Math.max(8, r.top - sheetH - 8);
-      if (left + sheetW > window.innerWidth) left = window.innerWidth - sheetW - 8;
-      panel.style.top = top + 'px';
-      panel.style.left = left + 'px';
-    } else {
-      panel.style.top = ''; panel.style.left = '';
-    }
-    anchor.hidden = isMobile;
+    const panel = sheet.querySelector('.yh-sheet-panel');
+    panel.classList.add('bottom-sheet');
+    panel.style.top = ''; panel.style.left = '';
+    sheet.querySelector('.yh-sheet-anchor').hidden = true;
   }
+
+  // 桌面端上下文菜单：无遮罩、无取消按钮，点击外部/Escape 关闭
+  function renderDesktopMenu(el, point, items) {
+    closeMsgSheet();
+    let menu = document.getElementById('yh-ctx-menu');
+    if (!menu) {
+      menu = document.createElement('div');
+      menu.id = 'yh-ctx-menu';
+      menu.className = 'yh-ctx-menu';
+      document.body.appendChild(menu);
+    }
+    menu.innerHTML = '';
+    items.forEach(it => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'yh-sheet-item' + (it.danger ? ' danger' : '');
+      b.innerHTML = `<span class="material-icons yh-sheet-ico">${it.icon}</span><span class="yh-sheet-lbl">${it.label}</span>`;
+      b.addEventListener('click', () => { closeMsgSheet(); it.fn && it.fn(); });
+      menu.appendChild(b);
+    });
+    // 定位到鼠标/消息旁
+    const menuW = 220, itemH = 44, menuH = itemH * items.length + 12;
+    let left = point.x;
+    let top = point.y;
+    if (left + menuW > window.innerWidth) left = window.innerWidth - menuW - 8;
+    if (top + menuH > window.innerHeight) top = Math.max(8, window.innerHeight - menuH - 8);
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+    menu.hidden = false;
+    requestAnimationFrame(() => menu.classList.add('open'));
+    // 点击外部或 Escape 关闭
+    const handler = (e) => {
+      if (e.type === 'keydown' && e.key !== 'Escape') return;
+      if (e.target && menu.contains(e.target)) return;
+      closeMsgSheet();
+      document.removeEventListener('click', handler, true);
+      document.removeEventListener('keydown', handler, true);
+    };
+    setTimeout(() => {
+      document.addEventListener('click', handler, true);
+      document.addEventListener('keydown', handler, true);
+    }, 0);
+  }
+
   function closeMsgSheet() {
     const sheet = document.getElementById('yh-msg-sheet');
-    if (!sheet) return;
-    sheet.classList.remove('open');
-    setTimeout(() => { sheet.hidden = true; }, 180);
+    if (sheet) { sheet.classList.remove('open'); setTimeout(() => { sheet.hidden = true; }, 180); }
+    const menu = document.getElementById('yh-ctx-menu');
+    if (menu) { menu.classList.remove('open'); setTimeout(() => { menu.hidden = true; }, 120); }
     if (S.longPressedEl) { S.longPressedEl.classList.remove('yh-msg-active'); S.longPressedEl = null; }
   }
 
@@ -1152,6 +1227,16 @@
     });
     const compose = $('#btn-compose-post'); if (compose) compose.onclick = openCompose;
     const search = $('#btn-community-search'); if (search) search.onclick = openCommunitySearch;
+    // 无限滚动：滚到底部自动加载下一页
+    const onListScroll = (box, loader) => {
+      if (!box) return;
+      box.addEventListener('scroll', () => {
+        if (box.scrollHeight - box.scrollTop - box.clientHeight < 120) loader(true);
+      }, { passive: true });
+    };
+    onListScroll($('#community-recommend'), loadRecommend);
+    onListScroll($('#community-mine'), loadMine);
+    onListScroll($('#community-posts'), loadMoreBaPosts);
   }
 
   function showCommunityTab(v) {
@@ -1206,36 +1291,121 @@
   }
 
   async function openBaDetail(baId) {
+    S._baDetailId = baId;
+    S._commPage.posts = 1;
+    S._commHasMore.posts = true;
     try {
       const data = await window.YHApi.baInfo(baId);
       const ba = (data && data.ba) || {};
       const posts = await window.YHApi.communityPosts(baId, 1, 20).catch(() => null);
       S._baPosts = (posts && posts.posts) || [];
+      if (S._baPosts.length < 20) S._commHasMore.posts = false;
       showCommunityTab('posts');
       renderPosts(S._baPosts, ba.name || '分区文章', () => loadCommunityBa());
-    } catch (e) { snack('获取分区失败：' + e.message); }
+      S._commPage.posts = 2;
+    } catch (e) { snack('获取分区详情失败：' + e.message); }
   }
 
-  async function loadRecommend() {
-    showCommunityTab('recommend');
+  async function loadMoreBaPosts() {
+    if (S._commLoading || !S._commHasMore.posts || !S._baDetailId) return;
+    S._commLoading = true;
+    const box = $('#community-posts');
+    const oldSentinel = box && box.querySelector('.yh-scroll-sentinel'); if (oldSentinel) oldSentinel.remove();
+    if (box) {
+      const el = document.createElement('div');
+      el.className = 'yh-scroll-sentinel';
+      el.innerHTML = '<div class="yh-scroll-loading">加载中…</div>';
+      box.appendChild(el);
+    }
     try {
-      const data = await window.YHApi.postListRecommend(1, 30);
-      renderPostList('#community-recommend', (data && data.posts) || []);
+      const page = S._commPage.posts || 2;
+      const data = await window.YHApi.communityPosts(S._baDetailId, page, 20);
+      const posts = (data && data.posts) || [];
+      if (posts.length < 20) S._commHasMore.posts = false;
+      // 追加到已有列表
+      const newPosts = (S._baPosts || []).concat(posts);
+      S._baPosts = newPosts;
+      renderPostsAppend(posts);
+      S._commPage.posts = page + 1;
+    } catch (e) { /* silent */ }
+    finally { S._commLoading = false; }
+  }
+
+  // 追加 ba 文章到列表（不清空已有内容）
+  function renderPostsAppend(posts) {
+    const box = $('#community-posts');
+    if (!box) return;
+    const oldSentinel = box.querySelector('.yh-scroll-sentinel'); if (oldSentinel) oldSentinel.remove();
+    const backBtn = box.querySelector('mdui-button'); // 保留返回按钮
+    if (!posts.length) return;
+    posts.forEach(p => {
+      const el = document.createElement('div'); el.className = 'yh-post-card';
+      const author = p.senderNickname || '匿名';
+      const stats = `${p.likeNum || 0} 赞 · ${p.commentNum || 0} 评 · ${p.collectNum || 0} 藏`;
+      let text = p.content || '';
+      if (p.contentType === 2) { try { text = window.marked ? window.marked.parse(text) : text; } catch (e) {} text = window.YHRender.sanitizeHtml(text); }
+      else text = window.YHRender.escapeHtml(text);
+      el.innerHTML = `<div class="yh-post-head">${avatarHtml(p.senderAvatar, author, 32)}<div><div class="yh-post-card-title">${window.YHRender.escapeHtml(p.title || '无标题')}</div><div class="yh-contact-sub">${window.YHRender.escapeHtml(author)} · ${window.YHRender.formatTime(p.createTime)}</div></div></div>
+        <div class="yh-post-card-text">${text}</div><div class="yh-post-card-stats">${stats}${renderSendToSelect('inline', p, { placeholder: '发送到…' })}</div>`;
+      el.onclick = (ev) => {
+        if (ev.target && ev.target.closest && ev.target.closest('.yh-send-to-wrap')) return;
+        openPost(p.id);
+      };
+      bindSendToSelect(el, { postId: p.id, postTitle: p.title, postContent: p.content, postType: p.contentType });
+      box.appendChild(el);
+    });
+  }
+
+  async function loadRecommend(append) {
+    if (!append) { S._commPage.recommend = 1; S._commHasMore.recommend = true; showCommunityTab('recommend'); }
+    if (S._commLoading || !S._commHasMore.recommend) return;
+    S._commLoading = true;
+    _showCommLoading('#community-recommend', append);
+    try {
+      const page = S._commPage.recommend || 1;
+      const data = await window.YHApi.postListRecommend(page, 20);
+      const posts = (data && data.posts) || [];
+      if (posts.length < 20) S._commHasMore.recommend = false;
+      renderPostList('#community-recommend', posts, false, append);
+      S._commPage.recommend = page + 1;
     } catch (e) { snack('获取推荐文章失败：' + e.message); }
+    finally { S._commLoading = false; }
   }
 
-  async function loadMine() {
-    showCommunityTab('mine');
+  async function loadMine(append) {
+    if (!append) { S._commPage.mine = 1; S._commHasMore.mine = true; showCommunityTab('mine'); }
+    if (S._commLoading || !S._commHasMore.mine) return;
+    S._commLoading = true;
+    _showCommLoading('#community-mine', append);
     try {
-      const data = await window.YHApi.myPostList(1, 30);
-      renderPostList('#community-mine', (data && data.posts) || [], true);
+      const page = S._commPage.mine || 1;
+      const data = await window.YHApi.myPostList(page, 20);
+      const posts = (data && data.posts) || [];
+      if (posts.length < 20) S._commHasMore.mine = false;
+      renderPostList('#community-mine', posts, true, append);
+      S._commPage.mine = page + 1;
     } catch (e) { snack('获取我的文章失败：' + e.message); }
+    finally { S._commLoading = false; }
   }
 
-  function renderPostList(selector, posts, isMine) {
+  // 显示/移除社区列表加载状态
+  function _showCommLoading(sel, append) {
+    const box = $(sel); if (!box) return;
+    const old = box.querySelector('.yh-scroll-sentinel'); if (old) old.remove();
+    if (append) {
+      const el = document.createElement('div');
+      el.className = 'yh-scroll-sentinel';
+      el.innerHTML = '<div class="yh-scroll-loading">加载中…</div>';
+      box.appendChild(el);
+    }
+  }
+
+  function renderPostList(selector, posts, isMine, append) {
     const box = $(selector);
-    box.innerHTML = '';
-    if (!posts.length) { box.innerHTML = '<div class="yh-contact-sub" style="padding:14px">暂无文章</div>'; return; }
+    // 追加模式：移除旧 sentinel，保留已有内容；非追加：清空
+    const oldSentinel = box.querySelector('.yh-scroll-sentinel'); if (oldSentinel) oldSentinel.remove();
+    if (!append) box.innerHTML = '';
+    if (!posts.length && !append) { box.innerHTML = '<div class="yh-contact-sub" style="padding:14px">暂无文章</div>'; return; }
     posts.forEach(p => {
       const el = document.createElement('div'); el.className = 'yh-post-card';
       const author = p.senderNickname || '匿名';
