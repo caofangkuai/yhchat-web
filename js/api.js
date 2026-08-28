@@ -95,9 +95,23 @@
       const headers = {};
       if (reqType) {
         const Req = root.lookupType(reqType);
+        // YHBuildRoot 使用 parse(..., { keepCase: true })，字段名按 proto 文本原样
+        // （snake_case：group_id / msg_count）保存，和我们在 api.js 中构造 payload 的命名一致。
+        // Req.create 直接按字段名赋值即可，不需要再走 fromObject 做转换。
+        const payload_err = Req.verify(payload || {});
+        if (payload_err) {
+          // verify 失败时不中断：字段可能缺失（proto3 都是可选），直接编码默认值。
+          // 但把错误打印到控制台，便于调试"为什么请求体字节数为 0"。
+          console.warn('[rawProto] verify warn for ' + reqType + ':', payload_err, payload);
+        }
         const msg = Req.create(payload || {});
         body = Req.encode(msg).finish();
         headers['Content-Type'] = 'application/x-protobuf';
+        // debug 用：抓包无请求体时可以定位到"编码零字节"
+        if (!body || body.length === 0) {
+          console.warn('[rawProto] encode produced ZERO-length body for', reqType,
+            'payload=', payload, 'msg=', msg, 'fields=', Object.keys(Req.fields));
+        }
       }
       const resp = await fetch(BASE + path, {
         method,
@@ -107,7 +121,18 @@
       if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
       const ab = await resp.arrayBuffer();
       const Res = root.lookupType(resType);
-      return Res.decode(new Uint8Array(ab));
+      // keepCase=true 时 decode 的字段名就是 proto 中的 snake_case，和 ui 层访问习惯一致。
+      // 同时做 int64 → Number/Long 兼容转换（protobuf.js 会根据精度自动回退）。
+      const decoded = Res.decode(new Uint8Array(ab));
+      // 为了兼容旧代码可能出现的 camelCase 访问（如 r.chatId、r.totalMsgs），
+      // 再把 snake_case 字段同步一份 camelCase 版本，两边都能拿到值。
+      const camelCase = s => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+      Object.keys(decoded).forEach(k => {
+        if (k === camelCase(k)) return;
+        const cc = camelCase(k);
+        if (!(cc in decoded)) decoded[cc] = decoded[k];
+      });
+      return decoded;
     },
 
     // ---------- Auth ----------
@@ -174,13 +199,14 @@
         'yh_conversation.conversation_list_send',
         'yh_conversation.ConversationList', { md5: '' });
       if (r.status.code !== 1) throw new Error(r.status.msg || '获取会话失败');
-      // protobuf.js 解码出的字段是 snake_case，而 ui 全程用 camelCase 访问
-      // （conv.chatId / conv.chatType / conv.timestampMs …）。若直接返回 r.data，
-      // 所有属性都是 undefined → openChat 时传 chatId=undefined → list-message 找不到会话返回空。
+      // 新版 rawProto 会同时吐出 camelCase + snake_case 两套字段；这里仍然做一次显式映射以
+      // 保证无论 proto 层策略如何变化，ui 层拿到的都是 camelCase，不会出现字段名混用导致的
+      // "抓包 success 但页面不显示消息"。
       // int64 字段（timestamp_ms 等）可能以 Long 对象或 number/string 形式返回，统一转成 number。
       const num = v => {
         if (v == null) return 0;
         if (typeof v === 'number') return v;
+        if (typeof v === 'string') { const n = Number(v); return isNaN(n) ? 0 : n; }
         if (typeof v === 'object' && typeof v.toNumber === 'function') return v.toNumber();
         const n = Number(v);
         return isNaN(n) ? 0 : n;

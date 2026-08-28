@@ -710,12 +710,19 @@ window.YHBuildRoot = function () {
   const protobuf = window.protobuf;
   const full = window.YH_PROTO_TEXT;
   const parts = full.split(/^(?=package )/m);
+  // keepCase=true：字段名严格按 proto 文本中的原样保留（group_id、msg_count 等
+  // 下划线名不会被自动 camelCase 成 groupId / msgCount）。
+  // 否则：
+  //   1) 业务层传 payload 是 snake_case（{group_id:"x"}），但 Type.fields 的 key 已被转成 groupId，
+  //      Req.fromObject / Req.create 找不到字段 → 所有值用默认零值 → encode 后是 0 字节空请求体
+  //      → 抓包"无请求体"、服务端空回复 success 但消息列表为空。
+  //   2) 解码出的字段名变成 camelCase，旧代码大量按 d.chat_id / d.msg_count 访问也会拿到 undefined。
   const root = new protobuf.Root();
   parts.forEach(part => {
     if (!part.trim()) return;
     const src = /^\s*syntax\s*=/.test(part) ? part : ('syntax = "proto3";\n' + part);
-    const r = protobuf.parse(src).root;
-    Object.values(r.nested || {}).forEach(ns => root.add(ns));
+    const parsed = protobuf.parse(src, { keepCase: true });
+    Object.values(parsed.root.nested || {}).forEach(ns => root.add(ns));
   });
   return root;
 };

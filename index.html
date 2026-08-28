@@ -164,11 +164,15 @@
   </script>
 
   <!-- 业务脚本（经典）：只挂全局，不在此处调用 mdui API -->
-  <script src="./js/proto.js"></script>
-  <script src="./js/api.js"></script>
-  <script src="./js/ws.js"></script>
-  <script src="./js/render.js"></script>
-  <script src="./js/ui.js"></script>
+  <!-- 注意：静态资源缓存强烈时，改了 proto/api 内容但线上仍然是旧版本会导致：
+       - 新消息类型（conversation_list_send、request_list_send 等）不存在
+       - protobuf.js keepCase 修复不生效 → 请求体字段名不匹配 → 编码 0 字节 → 抓包"无请求体"
+       通过带 cache-bust query 强制重新拉取；后续改 proto 或 api 时 bump 后缀即可。 -->
+  <script src="./js/proto.js?v=2"></script>
+  <script src="./js/api.js?v=2"></script>
+  <script src="./js/ws.js?v=2"></script>
+  <script src="./js/render.js?v=2"></script>
+  <script src="./js/ui.js?v=2"></script>
 </body>
 
 </html>
