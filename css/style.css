@@ -54,13 +54,15 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
 .view { position: absolute; inset: 0; display: flex; flex-direction: column; }
 
 .yh-topbar { position: sticky; top: 0; z-index: 5; }
-.yh-scroll { flex: 1; overflow-y: auto; padding: 8px 12px 16px; }
+/* min-height:0 是 flexbox 滚动容器能滚动的关键：默认 min-height:auto 会撑满内容导致 overflow 不触发 */
+.yh-scroll { flex: 1; overflow-y: auto; padding: 8px 12px 16px; min-height: 0; }
+.yh-conv-list, .yh-messages, .yh-ba-list, .yh-posts, #community-ba, #community-posts, #contacts-body, #profile-body { min-height: 0; }
 
 /* 消息：双栏 */
 .yh-view-messages { flex-direction: row; }
-.yh-conv-pane { width: 320px; min-width: 280px; border-right: 1px solid rgb(var(--mdui-color-outline-variant)); display: flex; flex-direction: column; }
+.yh-conv-pane { width: 320px; min-width: 280px; border-right: 1px solid rgb(var(--mdui-color-outline-variant)); display: flex; flex-direction: column; min-height: 0; }
 .yh-conv-list { flex: 1; overflow-y: auto; }
-.yh-chat-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.yh-chat-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 
 /* 会话项 */
 .yh-conv {
@@ -197,3 +199,41 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
 @media (min-width: 840px) {
   .yh-chat-pane { display: flex !important; }
 }
+
+/* ============ 社区子标签 ============ */
+.yh-community-tabs { margin: 0 8px; }
+
+/* 置顶会话标识 */
+.yh-conv-pinned { background: rgb(var(--mdui-color-secondary-container) / .4); }
+.yh-conv-pinned::after { content: '📌'; position: absolute; right: 6px; top: 4px; font-size: 11px; }
+.yh-pin-mark { color: rgb(var(--mdui-color-primary)); font-size: 12px; margin-right: 4px; }
+
+/* 文章详情弹窗 */
+.yh-post-detail { max-height: 80vh; overflow-y: auto; padding: 18px; }
+.yh-post-detail-title { font-size: 20px; font-weight: 800; margin: 8px 0 6px; word-break: break-word; }
+.yh-post-detail-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.yh-post-detail-body { line-height: 1.75; word-break: break-word; }
+.yh-post-detail-body img { max-width: 100%; border-radius: 8px; }
+.yh-post-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; border-top: 1px solid rgb(var(--mdui-color-outline-variant)); padding-top: 12px; }
+.yh-post-act { display: inline-flex; align-items: center; gap: 4px; padding: 6px 14px; border-radius: 999px; background: rgb(var(--mdui-color-surface-container-high)); cursor: pointer; font-size: 14px; border: none; color: rgb(var(--mdui-color-on-surface)); }
+.yh-post-act:hover { background: rgb(var(--mdui-color-surface-container-highest)); }
+.yh-post-act.active { color: rgb(var(--mdui-color-primary)); }
+.yh-post-act.is-danger { color: rgb(var(--mdui-color-error)); }
+
+/* 评论列表 */
+.yh-comments { margin-top: 16px; border-top: 1px solid rgb(var(--mdui-color-outline-variant)); padding-top: 12px; }
+.yh-comments-title { font-weight: 700; margin-bottom: 10px; }
+.yh-comment { display: flex; gap: 8px; padding: 8px 0; border-bottom: 1px solid rgb(var(--mdui-color-outline-variant) / .4); }
+.yh-comment-main { flex: 1; min-width: 0; }
+.yh-comment-author { font-weight: 600; font-size: 13px; }
+.yh-comment-text { font-size: 14px; word-break: break-word; margin-top: 2px; }
+.yh-comment-meta { font-size: 11px; color: rgb(var(--mdui-color-on-surface-variant)); margin-top: 3px; }
+.yh-comment-input { display: flex; gap: 8px; margin-top: 12px; align-items: flex-end; }
+
+/* 发文弹窗 */
+.yh-compose-field { margin-bottom: 10px; }
+.yh-compose-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+
+/* 分区详情 */
+.yh-ba-detail { text-align: center; padding: 18px; }
+.yh-ba-detail-meta { font-size: 13px; color: rgb(var(--mdui-color-on-surface-variant)); margin: 6px 0 12px; }

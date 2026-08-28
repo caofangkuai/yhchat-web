@@ -277,24 +277,151 @@
     },
 
     // ---------- Community (JSON) ----------
-    async communityPosts(baId, page = 1, size = 20) {
-      const r = await this.rawJson('/v1/community/posts/post-list', { baId, page, size });
+    // typ: 1-文本 2-markdown（post-list 的 typ）
+    async communityPosts(baId, page = 1, size = 20, typ = 1) {
+      const r = await this.rawJson('/v1/community/posts/post-list', { typ, baId, page, size });
       if (!r || r.code !== 1) throw new Error(r.msg || '获取文章失败');
       return r.data;
     },
 
     async postDetail(postId) {
-      const r = await this.rawJson('/v1/community/posts/post-detail', { postId });
+      // 官方接口参数名为 id（不是 postId），否则 HTTP 400
+      const r = await this.rawJson('/v1/community/posts/post-detail', { id: postId });
       if (!r || r.code !== 1) throw new Error(r.msg || '获取文章详情失败');
       return r.data;
     },
 
-    async communityBaList(page = 1, size = 20, keyword = '') {
-      // 官方分区列表接口为 /v1/community/ba/following-ba-list（typ=2 表示全部分区），
-      // /v1/community/ba/list 不存在会 404。响应 data.ba 为分区数组。
-      const r = await this.rawJson('/v1/community/ba/following-ba-list', { typ: 2, page, size });
+    async communityBaList(page = 1, size = 20, typ = 2) {
+      // typ: 1-关注 2-热门 3-我的 4-全部
+      const r = await this.rawJson('/v1/community/ba/following-ba-list', { typ, page, size });
       if (!r || r.code !== 1) throw new Error((r && r.msg) || '获取分区失败');
       return r.data;
+    },
+
+    async postListRecommend(page = 1, size = 20) {
+      const r = await this.rawJson('/v1/community/posts/post-list-recommend', { page, size });
+      if (!r || r.code !== 1) throw new Error(r.msg || '获取推荐文章失败');
+      return r.data;
+    },
+
+    async myPostList(page = 1, size = 20) {
+      const r = await this.rawJson('/v1/community/posts/my-post-list', { page, size });
+      if (!r || r.code !== 1) throw new Error(r.msg || '获取我的文章失败');
+      return r.data;
+    },
+
+    async postLike(id) {
+      const r = await this.rawJson('/v1/community/posts/post-like', { id });
+      if (!r || r.code !== 1) throw new Error(r.msg || '操作失败');
+      return true;
+    },
+
+    async postCollect(id) {
+      const r = await this.rawJson('/v1/community/posts/post-collect', { id });
+      if (!r || r.code !== 1) throw new Error(r.msg || '操作失败');
+      return true;
+    },
+
+    async commentList(postId, page = 1, size = 20) {
+      const r = await this.rawJson('/v1/community/comment/comment-list', { postId, page, size });
+      if (!r || r.code !== 1) throw new Error(r.msg || '获取评论失败');
+      return r.data;
+    },
+
+    async createComment(postId, content, commentId = 0) {
+      const r = await this.rawJson('/v1/community/comment/comment', { postId, commentId, content });
+      if (!r || r.code !== 1) throw new Error(r.msg || '评论失败');
+      return true;
+    },
+
+    async createPost(baId, title, content, contentType = 1, groupId = '', draftId = 0) {
+      const r = await this.rawJson('/v1/community/posts/create', { baId, groupId, title, content, contentType, draftId });
+      if (!r || r.code !== 1) throw new Error(r.msg || '发布失败');
+      return r.data;
+    },
+
+    async deletePost(postId) {
+      const r = await this.rawJson('/v1/community/posts/delete', { postId });
+      if (!r || r.code !== 1) throw new Error(r.msg || '删除失败');
+      return true;
+    },
+
+    async editPost(postId, title, content, contentType = 1) {
+      const r = await this.rawJson('/v1/community/posts/edit', { postId, title, content, contentType });
+      if (!r || r.code !== 1) throw new Error(r.msg || '编辑失败');
+      return true;
+    },
+
+    async searchCommunity(keyword, page = 1, size = 20, typ = 3) {
+      const r = await this.rawJson('/v1/community/search', { typ, keyword, page, size });
+      if (!r || r.code !== 1) throw new Error(r.msg || '搜索失败');
+      return r.data;
+    },
+
+    async baInfo(id) {
+      const r = await this.rawJson('/v1/community/ba/info', { id });
+      if (!r || r.code !== 1) throw new Error(r.msg || '获取分区失败');
+      return r.data;
+    },
+
+    async baGroupList(baId, page = 1, size = 20) {
+      const r = await this.rawJson('/v1/community/ba/group-list', { baId, page, size });
+      if (!r || r.code !== 1) throw new Error(r.msg || '获取群聊失败');
+      return r.data;
+    },
+
+    async followBa(baId, followSource = 2) {
+      const r = await this.rawJson('/v1/community/ba/user-follow-ba', { baId, followSource });
+      if (!r || r.code !== 1) throw new Error(r.msg || '关注失败');
+      return true;
+    },
+
+    async unfollowBa(baId) {
+      const r = await this.rawJson('/v1/community/ba/user-unfollow-ba', { baId });
+      if (!r || r.code !== 1) throw new Error(r.msg || '取关失败');
+      return true;
+    },
+
+    // ---------- Sticky (会话置顶) ----------
+    async stickyList() {
+      const r = await this.rawJson('/v1/sticky/list', {});
+      if (!r || r.code !== 1) throw new Error(r.msg || '获取置顶失败');
+      return r.data;
+    },
+
+    async stickyAdd(chatId, chatType) {
+      const r = await this.rawJson('/v1/sticky/add', { chatId, chatType });
+      if (!r || r.code !== 1) throw new Error(r.msg || '置顶失败');
+      return true;
+    },
+
+    async stickyDelete(chatId, chatType) {
+      const r = await this.rawJson('/v1/sticky/delete', { chatId, chatType });
+      if (!r || r.code !== 1) throw new Error(r.msg || '取消置顶失败');
+      return true;
+    },
+
+    // ---------- User profile ----------
+    async saveUserData(data) {
+      const r = await this.rawJson('/v1/user/save-user-data', data);
+      if (!r || r.code !== 1) throw new Error(r.msg || '修改失败');
+      return true;
+    },
+
+    async bindEmail(email, captcha) {
+      const r = await this.rawJson('/v1/user/bing-email', { email, captcha });
+      if (!r || r.code !== 1) throw new Error(r.msg || '绑定失败');
+      return true;
+    },
+
+    async changePassword(email, captcha, password) {
+      const r = await this.rawJson('/v1/user/forget-password', { email, captcha, password });
+      if (!r || r.code !== 1) throw new Error(r.msg || '修改密码失败');
+      return true;
+    },
+
+    async logout() {
+      return this.rawJson('/v1/user/logout', { 'device-id': this.deviceId });
     }
   };
 

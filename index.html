@@ -123,8 +123,18 @@
       <section id="view-community" class="view yh-view-community" hidden>
         <mdui-top-app-bar class="yh-topbar">
           <mdui-top-app-bar-title>社区</mdui-top-app-bar-title>
+          <div style="flex:1"></div>
+          <mdui-button-icon icon="edit_note" id="btn-compose-post" tooltip="发文章"></mdui-button-icon>
+          <mdui-button-icon icon="search" id="btn-community-search" tooltip="搜索"></mdui-button-icon>
         </mdui-top-app-bar>
-        <div id="community-ba" class="yh-ba-list yh-scroll"></div>
+        <mdui-tabs id="community-tabs" value="recommend" class="yh-community-tabs">
+          <mdui-tab value="recommend">推荐</mdui-tab>
+          <mdui-tab value="ba">分区</mdui-tab>
+          <mdui-tab value="mine">我的</mdui-tab>
+        </mdui-tabs>
+        <div id="community-recommend" class="yh-posts yh-scroll"></div>
+        <div id="community-ba" class="yh-ba-list yh-scroll" hidden></div>
+        <div id="community-mine" class="yh-posts yh-scroll" hidden></div>
         <div id="community-posts" class="yh-posts yh-scroll" hidden></div>
       </section>
 
