@@ -8,7 +8,7 @@
   <link rel="icon" href="data:," />
   <link rel="stylesheet" href="./vendor/mdui.css" />
   <link rel="stylesheet" href="./vendor/icons.css" />
-  <link rel="stylesheet" href="./css/style.css?v=7" />
+  <link rel="stylesheet" href="./css/style.css?v=8" />
   <!-- 预加载图标字体（mdui 组件默认 font-family 为 'Material Icons'）-->
   <link rel="preload" href="./vendor/material-icons.woff2" as="font" type="font/woff2" crossorigin>
 </head>
@@ -54,12 +54,30 @@
   <!-- ============ 主界面 ============ -->
   <div id="main-view" hidden>
     <!-- 左侧导航栏（桌面）/ 底部导航（手机） -->
-    <mdui-navigation-rail id="rail" class="yh-rail">
-      <mdui-navigation-rail-item icon="forum" value="messages" tooltip="消息">消息</mdui-navigation-rail-item>
-      <mdui-navigation-rail-item icon="contacts" value="contacts" tooltip="联系人">联系人</mdui-navigation-rail-item>
-      <mdui-navigation-rail-item icon="public" value="community" tooltip="社区">社区</mdui-navigation-rail-item>
-      <mdui-navigation-rail-item icon="account_circle" value="profile" tooltip="我的">我的</mdui-navigation-rail-item>
-    </mdui-navigation-rail>
+    <nav id="sidebar" class="yh-sidebar">
+      <div class="yh-sidebar-header">
+        <span class="yh-sidebar-logo">云湖</span>
+      </div>
+      <div class="yh-sidebar-items">
+        <button class="yh-sidebar-item active" data-view="messages">
+          <span class="material-icons">forum</span>
+          <span class="yh-sidebar-label">消息</span>
+        </button>
+        <button class="yh-sidebar-item" data-view="contacts">
+          <span class="material-icons">contacts</span>
+          <span class="yh-sidebar-label">联系人</span>
+        </button>
+        <button class="yh-sidebar-item" data-view="community">
+          <span class="material-icons">public</span>
+          <span class="yh-sidebar-label">社区</span>
+        </button>
+        <button class="yh-sidebar-item" data-view="profile">
+          <span class="material-icons">account_circle</span>
+          <span class="yh-sidebar-label">我的</span>
+        </button>
+      </div>
+      <div class="yh-sidebar-footer" id="sidebar-footer"></div>
+    </nav>
 
     <mdui-navigation-bar id="bottom-nav" class="yh-bottom-nav" value="messages">
       <mdui-navigation-bar-item icon="forum" value="messages">消息</mdui-navigation-bar-item>
@@ -128,27 +146,35 @@
           <mdui-tab value="book">通讯录</mdui-tab>
           <mdui-tab value="requests">好友请求</mdui-tab>
         </mdui-tabs>
-        <div id="contacts-body" class="yh-scroll"></div>
+        <div id="contacts-body" class="yh-scroll yh-centered-content"></div>
       </section>
 
       <!-- 社区 -->
       <section id="view-community" class="view yh-view-community" hidden>
-        <mdui-top-app-bar class="yh-topbar">
-          <mdui-top-app-bar-title>社区</mdui-top-app-bar-title>
-          <div style="flex:1"></div>
-          <mdui-button-icon icon="edit_note" id="btn-compose-post" tooltip="发文章"></mdui-button-icon>
-          <mdui-button-icon icon="search" id="btn-community-search" tooltip="搜索"></mdui-button-icon>
-        </mdui-top-app-bar>
-        <mdui-tabs id="community-tabs" value="recommend" class="yh-community-tabs">
-          <mdui-tab value="recommend">推荐</mdui-tab>
-          <mdui-tab value="ba">分区</mdui-tab>
-          <mdui-tab value="mine">我的</mdui-tab>
-        </mdui-tabs>
-        <div id="community-recommend" class="yh-posts yh-scroll"></div>
-        <div id="community-ba" class="yh-ba-list yh-scroll" hidden></div>
-        <div id="community-mine" class="yh-posts yh-scroll" hidden></div>
-        <div id="community-posts" class="yh-posts yh-scroll" hidden></div>
-        <div id="community-post-detail" class="yh-scroll" hidden></div>
+        <div class="yh-community-layout">
+          <aside class="yh-community-list-pane">
+            <mdui-top-app-bar class="yh-topbar">
+              <mdui-top-app-bar-title>社区</mdui-top-app-bar-title>
+              <div style="flex:1"></div>
+              <mdui-button-icon icon="edit_note" id="btn-compose-post" tooltip="发文章"></mdui-button-icon>
+              <mdui-button-icon icon="search" id="btn-community-search" tooltip="搜索"></mdui-button-icon>
+            </mdui-top-app-bar>
+            <mdui-tabs id="community-tabs" value="recommend" class="yh-community-tabs">
+              <mdui-tab value="recommend">推荐</mdui-tab>
+              <mdui-tab value="ba">分区</mdui-tab>
+              <mdui-tab value="mine">我的</mdui-tab>
+            </mdui-tabs>
+            <div id="community-recommend" class="yh-posts yh-scroll"></div>
+            <div id="community-ba" class="yh-ba-list yh-scroll" hidden></div>
+            <div id="community-mine" class="yh-posts yh-scroll" hidden></div>
+            <div id="community-posts" class="yh-posts yh-scroll" hidden></div>
+          </aside>
+          <div class="yh-community-detail-pane">
+            <div id="community-post-detail" class="yh-scroll">
+              <div class="yh-community-placeholder yh-chat-empty">选择一篇文章查看详情</div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- 我的 -->
@@ -156,8 +182,10 @@
         <mdui-top-app-bar class="yh-topbar">
           <mdui-top-app-bar-title>我的</mdui-top-app-bar-title>
         </mdui-top-app-bar>
-        <div id="profile-body" class="yh-scroll"></div>
-        <div id="settings-page" class="yh-scroll" hidden></div>
+        <div class="yh-profile-scroll">
+          <div id="profile-body" class="yh-scroll yh-centered-content"></div>
+          <div id="settings-page" class="yh-scroll yh-centered-content" hidden></div>
+        </div>
       </section>
     </main>
   </div>
@@ -180,11 +208,11 @@
        - 新消息类型（conversation_list_send、request_list_send 等）不存在
        - protobuf.js keepCase 修复不生效 → 请求体字段名不匹配 → 编码 0 字节 → 抓包"无请求体"
        通过带 cache-bust query 强制重新拉取；后续改 proto 或 api 时 bump 后缀即可。 -->
-  <script src="./js/proto.js?v=7"></script>
-  <script src="./js/api.js?v=7"></script>
-  <script src="./js/ws.js?v=7"></script>
-  <script src="./js/render.js?v=7"></script>
-  <script src="./js/ui.js?v=7"></script>
+  <script src="./js/proto.js?v=8"></script>
+  <script src="./js/api.js?v=8"></script>
+  <script src="./js/ws.js?v=8"></script>
+  <script src="./js/render.js?v=8"></script>
+  <script src="./js/ui.js?v=8"></script>
 </body>
 
 </html>

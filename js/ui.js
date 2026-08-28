@@ -249,8 +249,19 @@
   }
 
   async function loadProfile() {
-    try { S.profile = await window.YHApi.getProfile(); }
+    try { S.profile = await window.YHApi.getProfile(); renderSidebarFooter(); }
     catch (e) { snack('获取个人信息失败：' + e.message); }
+  }
+
+  // 桌面端侧边栏底部：显示当前用户头像 + 昵称
+  function renderSidebarFooter() {
+    const ft = $('#sidebar-footer'); if (!ft || !S.profile || !S.profile.data) return;
+    const d = S.profile.data;
+    ft.innerHTML = `<div class="yh-sidebar-user">
+      ${avatarInner(d.avatar_url, d.name, 32)}
+      <span class="yh-sidebar-user-name">${window.YHRender.escapeHtml(d.name || '')}</span>
+    </div>`;
+    ft.querySelector('.yh-sidebar-user').onclick = () => switchView('profile');
   }
 
   // ============ WebSocket ============
@@ -298,11 +309,19 @@
   // ============ 导航 ============
   function bindNav() {
     const go = (v) => switchView(v);
-    $('#rail').addEventListener('change', e => go(e.target.value));
+    // 桌面端侧边栏导航
+    $$('#sidebar .yh-sidebar-item').forEach(item => {
+      item.addEventListener('click', () => go(item.dataset.view));
+    });
+    // 手机端底部导航
     $('#bottom-nav').addEventListener('change', e => go(e.target.value));
   }
   function switchView(v) {
-    $('#rail').value = v; $('#bottom-nav').value = v;
+    // 更新侧边栏 active 状态
+    $$('#sidebar .yh-sidebar-item').forEach(item => {
+      item.classList.toggle('active', item.dataset.view === v);
+    });
+    $('#bottom-nav').value = v;
     ['messages', 'contacts', 'community', 'profile'].forEach(name => {
       $('#view-' + name).hidden = (name !== v);
     });
@@ -840,6 +859,18 @@
         e.preventDefault();
         if (S.editing) saveEdit(); else sendText();
       }
+      // Escape 取消编辑/引用
+      if (e.key === 'Escape' && (S.editing || S.quoting)) {
+        e.preventDefault();
+        cancelActionMode();
+      }
+    });
+    // 全局 Escape：关闭图片预览
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const preview = $('.yh-img-preview');
+        if (preview) { preview.remove(); return; }
+      }
     });
     input.addEventListener('input', () => { if (S.active) window.YHWs.sendDraft(S.active.chatId, input.value); });
     $('#btn-chat-back').onclick = () => { $('#view-messages').classList.remove('chat-open'); S.active = null; cancelActionMode(); renderConversations(); };
@@ -1005,7 +1036,7 @@
         const display = it.remark || it.name || '';
         const el = document.createElement('div'); el.className = 'yh-contact-item';
         el.innerHTML = `${avatarHtml(it.avatar_url, display, 42)}<div><div class="yh-contact-name">${window.YHRender.escapeHtml(display)}</div><div class="yh-contact-sub">${typeName(cat.t)}</div></div>`;
-        el.onclick = () => openChat({ chatId: it.chat_id, chatType: cat.t, name: display, avatarUrl: it.avatar_url });
+        el.onclick = () => { switchView('messages'); openChat({ chatId: it.chat_id, chatType: cat.t, name: display, avatarUrl: it.avatar_url }); };
         g.appendChild(el);
       });
       body.appendChild(g);
@@ -1047,7 +1078,7 @@
     if (!tabs) return;
     tabs.addEventListener('change', (e) => {
       const v = e.target.value;
-      ['recommend', 'ba', 'mine', 'posts', 'post-detail'].forEach(id => { const el = $('#community-' + id); if (el) el.hidden = (id !== v); });
+      showCommunityTab(v);
       if (v === 'recommend') loadRecommend();
       else if (v === 'ba') loadCommunityBa();
       else if (v === 'mine') loadMine();
@@ -1061,7 +1092,17 @@
     // 否则 mdui-tabs 会因找不到匹配项而重置到首个 tab 并触发 change 事件，把目标 div 又隐藏掉。
     const tabs = $('#community-tabs');
     if (tabs && ['recommend', 'ba', 'mine'].includes(v)) tabs.value = v;
-    ['recommend', 'ba', 'mine', 'posts', 'post-detail'].forEach(id => { const el = $('#community-' + id); if (el) el.hidden = (id !== v); });
+    const layout = document.querySelector('.yh-community-layout');
+    if (v === 'post-detail') {
+      // 显示文章详情（桌面端右侧面板，手机端覆盖列表）
+      if (layout) layout.classList.add('detail-open');
+    } else {
+      // 显示列表，隐藏详情（恢复占位提示）
+      if (layout) layout.classList.remove('detail-open');
+      const detail = $('#community-post-detail');
+      if (detail) detail.innerHTML = '<div class="yh-community-placeholder yh-chat-empty">选择一篇文章查看详情</div>';
+      ['recommend', 'ba', 'mine', 'posts'].forEach(id => { const el = $('#community-' + id); if (el) el.hidden = (id !== v); });
+    }
   }
 
   async function loadCommunityBa() {
@@ -1541,6 +1582,7 @@
   // ============ 我的 ============
   function renderProfile() {
     const p = S.profile; if (!p || !p.data) { $('#profile-body').innerHTML = '<div class="yh-contact-sub">未登录</div>'; return; }
+    renderSidebarFooter();
     const d = p.data;
     const body = $('#profile-body');
     body.innerHTML = `<div class="yh-profile">
