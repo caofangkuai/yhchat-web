@@ -167,7 +167,12 @@
 
     // ---------- Conversations ----------
     async listConversations() {
-      const r = await this.rawProto('/v1/conversation/list', null, 'yh_conversation.ConversationList', {});
+      // 必须传 ConversationListRequest.md5（field 2），否则抓包看请求体为空 → 服务端
+      // 可能直接返回空列表或错误缓存。不传 md5 传空串表示首次拉取；若后续要做增量，
+      // 可保存上一次返回的 md5（若有）。
+      const r = await this.rawProto('/v1/conversation/list',
+        'yh_conversation.conversation_list_send',
+        'yh_conversation.ConversationList', { md5: '' });
       if (r.status.code !== 1) throw new Error(r.status.msg || '获取会话失败');
       // protobuf.js 解码出的字段是 snake_case，而 ui 全程用 camelCase 访问
       // （conv.chatId / conv.chatType / conv.timestampMs …）。若直接返回 r.data，
@@ -291,7 +296,8 @@
     },
 
     async getBotInfo(botId) {
-      const r = await this.rawProto('/v1/bot/bot-info', 'yh_bot.bot_info_send', 'yh_bot.bot_info', { bot_id: botId });
+      // BotInfoRequest：API 文档 field 2 = id（不要传 bot_id，field 编号虽然一样、但按文档对齐）
+      const r = await this.rawProto('/v1/bot/bot-info', 'yh_bot.bot_info_send', 'yh_bot.bot_info', { id: botId });
       if (r.status.code !== 1) throw new Error(r.status.msg || '获取机器人失败');
       return r.data;
     },
@@ -304,7 +310,9 @@
     },
 
     async friendRequests() {
-      const r = await this.rawProto('/v1/friend/request-list', null, 'yh_friend.request_list', {});
+      // 传 request_list_send.md5 = 空串，请求体不再为空（之前 reqType=null 抓包无请求体）
+      const r = await this.rawProto('/v1/friend/request-list',
+        'yh_friend.request_list_send', 'yh_friend.request_list', { md5: '' });
       if (r.status.code !== 1) throw new Error(r.status.msg || '获取好友请求失败');
       return r.requests || [];
     },

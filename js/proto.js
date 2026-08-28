@@ -389,6 +389,12 @@ message Status {
     string msg = 3;
 }
 
+// 与 ConversationListRequest 对应（API 文档 field 2 = md5）
+// 不传 md5 或传空串表示首次拉取；若服务端 md5 一致则返回空列表。
+message conversation_list_send {
+    string md5 = 2;
+}
+
 message ConversationList {
     Status status = 1;
     repeated ConversationData data = 2;
@@ -619,6 +625,12 @@ message Status {
     string msg = 3;
 }
 
+// 好友请求列表（/v1/friend/request-list）— 官方 proto 无显式 Request，按惯例与
+// ConversationListRequest 一样用 md5 做增量请求。传空串表示首次拉取。
+message request_list_send {
+    string md5 = 2;
+}
+
 message request_list {
     Status status = 1;
     message Request {
@@ -659,8 +671,9 @@ message Status {
     string msg = 3;
 }
 
+// BotInfoRequest：API 文档 field 2 = id（机器人 ID）
 message bot_info_send {
-    string bot_id = 2;
+    string id = 2;
 }
 
 message bot_info {

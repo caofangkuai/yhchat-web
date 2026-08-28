@@ -53,7 +53,20 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
 #content { flex: 1; position: relative; min-width: 0; }
 .view { position: absolute; inset: 0; display: flex; flex-direction: column; }
 
-.yh-topbar { position: sticky; top: 0; z-index: 5; }
+/* mdui TopAppBar（small 型）标准高度约 64px，flex column 下 sticky 没问题，
+   但组件未连接时（升级/SSR 间隙）或在 shadow DOM 中布局参与度不稳定时仍可能与
+   下方内容发生 1px 级重叠。这里给顶栏显式声明高度 + 给内容第一行一个最小边距，
+   保证在 PC / 手机端内容都不会被 toolbar 吃掉。同时 z-index 提至 8，避免被
+   rail/nav 里的阴影或 ripple 叠盖时丢失交互事件。 */
+:root { --yh-topbar-h: 64px; }
+.yh-topbar {
+  position: sticky; top: 0; z-index: 8;
+  min-height: var(--yh-topbar-h); height: var(--yh-topbar-h);
+  flex-shrink: 0;
+}
+/* mdui-subtabs / yh-subtabs 紧跟顶栏时，内容（列表/滚动区）起点一定要在其下方，
+   否则 tabs 会叠在列表最上面一行，造成首项"消失"（被 toolbar + tabs 覆盖）。 */
+.yh-subtabs, .yh-community-tabs { flex-shrink: 0; }
 /* min-height:0 是 flexbox 滚动容器能滚动的关键：默认 min-height:auto 会撑满内容导致 overflow 不触发 */
 .yh-scroll { flex: 1; overflow-y: auto; padding: 8px 12px 16px; min-height: 0; }
 .yh-conv-list, .yh-messages, .yh-ba-list, .yh-posts, #community-ba, #community-posts, #community-post-detail, #contacts-body, #profile-body { min-height: 0; }
