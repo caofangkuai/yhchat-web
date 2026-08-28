@@ -192,12 +192,11 @@
 
     // ---------- Conversations ----------
     async listConversations() {
-      // 必须传 ConversationListRequest.md5（field 2），否则抓包看请求体为空 → 服务端
-      // 可能直接返回空列表或错误缓存。不传 md5 传空串表示首次拉取；若后续要做增量，
-      // 可保存上一次返回的 md5（若有）。
+      // 用户要求 /v1/conversation/list 不带请求体（服务端按 token 头识别用户）。
+      // POST 不变，reqType = null 让 rawProto 跳过 body / Content-Type，其余接口不受影响。
       const r = await this.rawProto('/v1/conversation/list',
-        'yh_conversation.conversation_list_send',
-        'yh_conversation.ConversationList', { md5: '' });
+        null,
+        'yh_conversation.ConversationList', null);
       if (r.status.code !== 1) throw new Error(r.status.msg || '获取会话失败');
       // 新版 rawProto 会同时吐出 camelCase + snake_case 两套字段；这里仍然做一次显式映射以
       // 保证无论 proto 层策略如何变化，ui 层拿到的都是 camelCase，不会出现字段名混用导致的
