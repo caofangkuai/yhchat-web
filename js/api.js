@@ -16,6 +16,13 @@
     userId: localStorage.getItem('yh_uid') || null,
     deviceId: localStorage.getItem('yh_did') || (localStorage.setItem('yh_did', crypto.randomUUID()), localStorage.getItem('yh_did')),
 
+    // 图片/视频等媒体防盗链代理。chat-img*.jwznb.com 的 CDN 校验 Referer 必须为
+    // *.jwzhd.com（官方 App 用 OkHttp 拦截器加 Referer，浏览器 <img> 无法自定义该头）。
+    // - 部署在 *.jwzhd.com 子域时浏览器会自动带合规 Referer，留空即可正常显示；
+    // - 否则需自行部署反向代理（带合规 Referer 拉取），并把本值设为该代理前缀，
+    //   例如 "https://your-proxy/?url="（会以 encodeURIComponent(url) 拼接）。
+    MEDIA_PROXY: localStorage.getItem('yh_media_proxy') || '',
+
     init() {
       if (!window.protobuf) throw new Error('protobuf.js 未加载');
       root = window.YHBuildRoot();
@@ -34,6 +41,15 @@
     clearSession() {
       this.token = null; this.userId = null;
       localStorage.removeItem('yh_token'); localStorage.removeItem('yh_uid');
+    },
+
+    // 将媒体 URL 经反向代理转发（用于规避 jwznb CDN 的 Referer 校验）。
+    mediaUrl(url) {
+      if (!url) return url;
+      if (typeof url !== 'string') return url;
+      const proxy = this.MEDIA_PROXY;
+      if (!proxy) return url;
+      return proxy + encodeURIComponent(url);
     },
 
     _headers(extra) {
@@ -224,7 +240,8 @@
     },
 
     async getGroupInfo(groupId) {
-      const r = await this.rawProto('/v1/group/group-info', 'yh_group.info_send', 'yh_group.info', { group_id: groupId });
+      // 官方 protobuf 接口路径为 /v1/group/info（/v1/group/group-info 是 JSON 接口，会 404）
+      const r = await this.rawProto('/v1/group/info', 'yh_group.info_send', 'yh_group.info', { group_id: groupId });
       if (r.status.code !== 1) throw new Error(r.status.msg || '获取群聊失败');
       return r.data;
     },
@@ -273,8 +290,10 @@
     },
 
     async communityBaList(page = 1, size = 20, keyword = '') {
-      const r = await this.rawJson('/v1/community/ba/list', { page, size, keyword });
-      if (!r || r.code !== 1) throw new Error(r.msg || '获取分区失败');
+      // 官方分区列表接口为 /v1/community/ba/following-ba-list（typ=2 表示全部分区），
+      // /v1/community/ba/list 不存在会 404。响应 data.ba 为分区数组。
+      const r = await this.rawJson('/v1/community/ba/following-ba-list', { typ: 2, page, size });
+      if (!r || r.code !== 1) throw new Error((r && r.msg) || '获取分区失败');
       return r.data;
     }
   };

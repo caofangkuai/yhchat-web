@@ -52,6 +52,9 @@ vendor/             本地依赖（mdui / protobuf.js / marked）
 
 - 调用的是云湖**官方公开接口**，未做任何破解；仅供学习与交流，请在下载后 24 小时内删除。
 - 浏览器直接跨域请求 `chat-go.jwzhd.com` 时，若该域名未开启 CORS，部分请求可能被浏览器拦截。若遇到此情况，可将该静态站点部署到已配置 CORS 的环境，或自行添加反向代理（本项目本身不包含后端）。
+- **头像/媒体防盗链**：云湖媒体 CDN（`chat-img*.jwznb.com`）校验 `Referer` 必须为 `*.jwzhd.com`（官方 App 用 OkHttp 拦截器加 `Referer: https://myapp.jwznb.com`，浏览器 `<img>` 无法自定义该请求头）。
+  - 将本站部署到任意 `*.jwzhd.com` 子域时，浏览器会自动带合规 `Referer`，头像可直接显示；
+  - 否则在本地 / GitHub Pages 等非 `jwzhd.com` 域名下访问会出现 `403`，需自行部署一个反向代理（以合规 `Referer` 拉取）并在浏览器控制台执行 `localStorage.setItem('yh_media_proxy','https://your-proxy/?url=')`（末尾按 `encodeURIComponent(url)` 拼接），头像/图片即可经代理正常显示；加载失败会自动降级为首字母占位，不会出现裂图。
 - 媒体（图片/文件/语音/视频）发送采用「直链 URL」方式（与原接口 `image/file/audio/video` 字段接受 key/url 一致）；如需上传本地文件，可在此基础上接入七牛上传（项目已预留 `qiniu-token` 接口）。
 
 ## License

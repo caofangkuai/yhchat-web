@@ -43,6 +43,16 @@
     return (n / 1024 / 1024).toFixed(1) + ' MB';
   }
 
+  // 媒体地址经反向代理转发（规避 jwznb CDN Referer 校验）；库未就绪时回退原地址
+  function media(url) {
+    return (window.YHApi && window.YHApi.mediaUrl) ? window.YHApi.mediaUrl(url) : url;
+  }
+  function failedImage() {
+    const d = document.createElement('div');
+    d.className = 'yh-img-failed'; d.textContent = '图片加载失败';
+    return d;
+  }
+
   // Render inner content for a message, returns HTML string
   function renderContent(msg, hooks) {
     const c = msg.content || {};
@@ -50,21 +60,21 @@
     const myId = window.YHApi.userId;
     switch (ct) {
       case CT.IMAGE:
-        if (c.image_url) return `<img class="yh-img" src="${escapeHtml(c.image_url)}" loading="lazy" data-url="${escapeHtml(c.image_url)}" alt="图片"/>`;
+        if (c.image_url) return `<img class="yh-img" src="${escapeHtml(media(c.image_url))}" loading="lazy" data-url="${escapeHtml(c.image_url)}" alt="图片" onerror="this.replaceWith(window.YHRender.failedImage())"/>`;
         return '';
       case CT.FILE:
-        return `<a class="yh-file" href="${escapeHtml(c.file_url)}" target="_blank" rel="noopener">
+        return `<a class="yh-file" href="${escapeHtml(media(c.file_url))}" target="_blank" rel="noopener">
                   <span class="yh-file-ico">📄</span>
                   <span class="yh-file-meta"><b>${escapeHtml(c.file_name || '文件')}</b><small>${fileSize(c.file_size)}</small></span>
                   <span class="yh-file-dl">下载</span></a>`;
       case CT.AUDIO: {
         const dur = c.audio_time ? ` / ${Math.floor(c.audio_time / 60)}:${String(c.audio_time % 60).padStart(2, '0')}` : '';
-        return `<div class="yh-audio">🎤<audio controls src="${escapeHtml(c.audio_url)}"></audio><small>${dur}</small></div>`;
+        return `<div class="yh-audio">🎤<audio controls src="${escapeHtml(media(c.audio_url))}"></audio><small>${dur}</small></div>`;
       }
       case CT.VIDEO:
-        return `<video class="yh-video" src="${escapeHtml(c.video_url)}" controls preload="metadata"></video>`;
+        return `<video class="yh-video" src="${escapeHtml(media(c.video_url))}" controls preload="metadata"></video>`;
       case CT.EXPRESSION:
-        if (c.sticker_url) return `<img class="yh-sticker" src="${escapeHtml(c.sticker_url)}" alt="表情"/>`;
+        if (c.sticker_url) return `<img class="yh-sticker" src="${escapeHtml(media(c.sticker_url))}" alt="表情" onerror="this.replaceWith(window.YHRender.failedImage())"/>`;
         return `<span class="yh-expression">[表情 ${escapeHtml(c.expression_id || '')}]</span>`;
       case CT.POST:
         return `<div class="yh-post" data-post="${escapeHtml(c.post_id || '')}">
@@ -159,5 +169,5 @@
     return el;
   }
 
-  window.YHRender = { escapeHtml, sanitizeHtml, formatTime, fileSize, renderContent, renderBubble, renderSystem };
+  window.YHRender = { escapeHtml, sanitizeHtml, formatTime, fileSize, renderContent, renderBubble, renderSystem, failedImage };
 })();

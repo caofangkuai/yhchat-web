@@ -144,6 +144,27 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
 .yh-contact-sub { font-size: 12px; color: rgb(var(--mdui-color-on-surface-variant)); }
 .yh-request-actions { display: flex; gap: 8px; margin-top: 6px; }
 
+/* 头像（替代 mdui-avatar，便于 onerror 兜底与防盗链代理） */
+.yh-avatar {
+  position: relative; width: var(--size, 40px); height: var(--size, 40px);
+  border-radius: 50%; overflow: hidden; flex-shrink: 0;
+  background: rgb(var(--mdui-color-surface-container-high));
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.yh-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.yh-avatar-fb { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-weight: 600; color: rgb(var(--mdui-color-on-surface-variant)); }
+
+/* 对话框关闭按钮 */
+.yh-dialog-close { position: fixed; top: 16px; right: 16px; z-index: 10000; color: rgb(var(--mdui-color-on-surface-variant)); }
+
+/* 联系人分类 */
+.yh-cat-head { font-weight: 700; margin: 14px 4px 4px; color: rgb(var(--mdui-color-on-surface-variant)); font-size: 13px; }
+.yh-req-status { color: rgb(var(--mdui-color-on-surface-variant)); }
+.yh-req-status.is-pending { color: rgb(var(--mdui-color-primary)); }
+
+/* 图片加载失败占位 */
+.yh-img-failed { display: inline-flex; align-items: center; justify-content: center; min-width: 160px; min-height: 80px; border-radius: 10px; background: rgb(var(--mdui-color-surface-container-high)); color: rgb(var(--mdui-color-on-surface-variant)); font-size: 13px; }
+
 .yh-post-card { padding: 14px; border-radius: 16px; background: rgb(var(--mdui-color-surface-container)); margin-bottom: 12px; cursor: pointer; }
 .yh-post-card:hover { background: rgb(var(--mdui-color-surface-container-high)); }
 .yh-post-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }

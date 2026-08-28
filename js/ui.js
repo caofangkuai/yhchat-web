@@ -10,11 +10,17 @@
   const S = { profile: null, conversations: [], active: null, messages: [], baList: [], posts: [] };
 
   function snack(msg, opts) { try { mdui.snackbar(Object.assign({ message: msg }, opts || {})); } catch (e) { console.warn(e); } }
+  // 头像内部结构：img 加载失败时自动移除，露出下方首字母兜底；URL 走 mediaUrl 代理规避防盗链
+  function avatarInner(url, name, size) {
+    const sz = size || 40;
+    const ch = window.YHRender.escapeHtml((name || '?').slice(0, 1));
+    const proxied = url ? window.YHApi.mediaUrl(url) : '';
+    const img = proxied ? `<img src="${window.YHRender.escapeHtml(proxied)}" alt="" onerror="this.remove()">` : '';
+    return `${img}<span class="yh-avatar-fb">${ch}</span>`;
+  }
   function avatarHtml(url, name, size) {
     const sz = size || 40;
-    if (url) return `<mdui-avatar src="${window.YHRender.escapeHtml(url)}" style="--size:${sz}px"></mdui-avatar>`;
-    const ch = (name || '?').slice(0, 1);
-    return `<mdui-avatar style="--size:${sz}px">${window.YHRender.escapeHtml(ch)}</mdui-avatar>`;
+    return `<div class="yh-avatar" style="--size:${sz}px">${avatarInner(url, name, sz)}</div>`;
   }
 
   function openDialog(html, opts) {
@@ -22,6 +28,12 @@
     const d = document.createElement('mdui-dialog');
     d.style.maxWidth = (opts.width || 560) + 'px';
     d.innerHTML = html;
+    const close = document.createElement('mdui-button-icon');
+    close.icon = 'close';
+    close.className = 'yh-dialog-close';
+    close.setAttribute('aria-label', '关闭');
+    close.onclick = () => { d.open = false; };
+    d.appendChild(close);
     $('#dialog-host').appendChild(d);
     requestAnimationFrame(() => { d.open = true; });
     d.addEventListener('close', () => d.remove());
@@ -207,7 +219,7 @@
     $('#view-messages').classList.add('chat-open');
     $('#chat-empty').hidden = true; $('#chat-active').hidden = false;
     $('#chat-title').textContent = conv.name || '';
-    const av = $('#chat-avatar'); if (conv.avatarUrl) av.setAttribute('src', conv.avatarUrl); else { av.removeAttribute('src'); av.textContent = (conv.name || '?').slice(0, 1); }
+    $('#chat-avatar').innerHTML = avatarInner(conv.avatarUrl, conv.name, 36);
     renderConversations();
     // 清未读
     conv.unreadMessage = 0;
@@ -268,7 +280,7 @@
 
   function openImage(url) {
     const ov = document.createElement('div'); ov.className = 'yh-img-preview';
-    ov.innerHTML = `<img src="${window.YHRender.escapeHtml(url)}"/>`;
+    ov.innerHTML = `<img src="${window.YHRender.escapeHtml(window.YHApi.mediaUrl(url))}"/>`;
     ov.onclick = () => ov.remove();
     document.body.appendChild(ov);
   }
@@ -359,18 +371,38 @@
   }
   function renderAddressBook(book) {
     const body = $('#contacts-body'); body.innerHTML = '';
+    // 通讯录按 list_name 区分类型：好友/用户=1，我加入的群聊=2，机器人=3
+    const cats = [
+      { t: 1, label: '好友', items: [] },
+      { t: 2, label: '群聊', items: [] },
+      { t: 3, label: '机器人', items: [] }
+    ];
     (book || []).forEach(group => {
+      const ln = group.list_name || '';
+      let t = 0;
+      if (ln === '好友' || ln === '用户') t = 1;
+      else if (ln.indexOf('群聊') >= 0) t = 2;
+      else if (ln === '机器人') t = 3;
+      if (!t) return;
+      const cat = cats.find(c => c.t === t);
+      (group.data || []).forEach(it => cat.items.push(it));
+    });
+    cats.forEach(cat => {
+      if (!cat.items.length) return;
       const g = document.createElement('div'); g.className = 'yh-contact-group';
-      g.innerHTML = `<div style="font-weight:700;margin:10px 4px 4px">${window.YHRender.escapeHtml(group.list_name || '')}（${group.data ? group.data.length : 0}）</div>`;
-      (group.data || []).forEach(it => {
-        const ct = it.permisson_level != null ? 2 : 1;
+      g.innerHTML = `<div class="yh-cat-head">${window.YHRender.escapeHtml(cat.label)}（${cat.items.length}）</div>`;
+      cat.items.forEach(it => {
         const el = document.createElement('div'); el.className = 'yh-contact-item';
-        el.innerHTML = `${avatarHtml(it.avatar_url, it.name, 42)}<div><div class="yh-contact-name">${window.YHRender.escapeHtml(it.name || '')}</div><div class="yh-contact-sub">${ct === 2 ? '群聊' : '用户'}</div></div>`;
-        el.onclick = () => openChat({ chatId: it.chat_id, chatType: ct, name: it.name, avatarUrl: it.avatar_url });
+        el.innerHTML = `${avatarHtml(it.avatar_url, it.name, 42)}<div><div class="yh-contact-name">${window.YHRender.escapeHtml(it.name || '')}</div><div class="yh-contact-sub">${typeName(cat.t)}</div></div>`;
+        el.onclick = () => openChat({ chatId: it.chat_id, chatType: cat.t, name: it.name, avatarUrl: it.avatar_url });
         g.appendChild(el);
       });
       body.appendChild(g);
     });
+    if (!body.children.length) body.innerHTML = '<div class="yh-contact-sub" style="padding:14px">暂无联系人</div>';
+  }
+  function requestStatus(result) {
+    return ({ 0: '待处理', 1: '已通过', 2: '已拒绝', 3: '已过期', 4: '已解散' })[result] || '未知';
   }
   function renderRequests(reqs) {
     const body = $('#contacts-body'); body.innerHTML = '';
@@ -378,17 +410,22 @@
     reqs.forEach(r => {
       const el = document.createElement('div'); el.className = 'yh-contact-item'; el.style.flexDirection = 'column'; el.style.alignItems = 'stretch';
       const who = r.name || r.botName || r.groupName || '用户';
+      const pending = (r.result == null || r.result === 0);
+      const statusText = requestStatus(r.result);
       el.innerHTML = `${avatarHtml(r.avatar || r.botAvatar || r.groupAvatar, who, 42)}
-        <div style="flex:1"><div class="yh-contact-name">${window.YHRender.escapeHtml(who)}</div><div class="yh-contact-sub">${typeName(r.targetType)} · ${window.YHRender.escapeHtml(r.note || '')}</div></div>
-        <div class="yh-request-actions">
+        <div style="flex:1"><div class="yh-contact-name">${window.YHRender.escapeHtml(who)}</div>
+        <div class="yh-contact-sub">${typeName(r.targetType)} · ${window.YHRender.escapeHtml(r.note || '')} · <span class="yh-req-status${pending ? ' is-pending' : ''}">${statusText}</span></div></div>
+        ${pending ? `<div class="yh-request-actions">
           <mdui-button variant="filled" data-act="agree">同意</mdui-button>
           <mdui-button variant="outlined" data-act="ignore">忽略</mdui-button>
-        </div>`;
-      el.querySelector('[data-act="agree"]').onclick = async () => {
+        </div>` : ''}`;
+      const agree = el.querySelector('[data-act="agree"]');
+      if (agree) agree.onclick = async () => {
         try { await window.YHApi.agreeFriend(r.requestId, r.targetId, r.targetType); snack('已同意'); loadContacts(); }
         catch (e) { snack('操作失败：' + e.message); }
       };
-      el.querySelector('[data-act="ignore"]').onclick = () => el.remove();
+      const ignore = el.querySelector('[data-act="ignore"]');
+      if (ignore) ignore.onclick = () => el.remove();
       body.appendChild(el);
     });
   }
@@ -397,7 +434,7 @@
   async function loadCommunityBa() {
     try {
       const data = await window.YHApi.communityBaList(1, 30, '');
-      S.baList = (data && data.list) || [];
+      S.baList = (data && data.ba) || [];
       renderBa();
     } catch (e) { snack('获取社区分区失败：' + e.message); }
   }
@@ -407,15 +444,15 @@
     if (!S.baList.length) { box.innerHTML = '<div class="yh-contact-sub" style="padding:14px">暂无分区</div>'; return; }
     S.baList.forEach(ba => {
       const el = document.createElement('div'); el.className = 'yh-ba-card';
-      el.innerHTML = `${avatarHtml(ba.avatar, ba.name, 48)}<div class="yh-ba-meta"><div class="yh-ba-title">${window.YHRender.escapeHtml(ba.name || '')}</div><div class="yh-ba-desc">${window.YHRender.escapeHtml(ba.introduction || '')}</div></div><mdui-icon-button icon="chevron_right"></mdui-icon-button>`;
-      el.onclick = () => loadPosts(ba.baId != null ? ba.baId : ba.id);
+      el.innerHTML = `${avatarHtml(ba.avatar, ba.name, 48)}<div class="yh-ba-meta"><div class="yh-ba-title">${window.YHRender.escapeHtml(ba.name || '')}</div><div class="yh-ba-desc">${ba.memberNum || 0} 成员 · ${ba.postNum || 0} 文章</div></div><mdui-icon-button icon="chevron_right"></mdui-icon-button>`;
+      el.onclick = () => loadPosts(ba.id);
       box.appendChild(el);
     });
   }
   async function loadPosts(baId) {
     try {
       const data = await window.YHApi.communityPosts(baId, 1, 20);
-      S.posts = (data && data.list) || [];
+      S.posts = (data && data.posts) || [];
       renderPosts();
     } catch (e) { snack('获取文章失败：' + e.message); }
   }
@@ -426,14 +463,14 @@
     if (!S.posts.length) { box.innerHTML += '<div class="yh-contact-sub" style="padding:14px">暂无文章</div>'; return; }
     S.posts.forEach(p => {
       const el = document.createElement('div'); el.className = 'yh-post-card';
-      const author = (p.author && (p.author.name || p.author.nickname)) || '匿名';
-      const stats = `${p.likeCount || 0} 赞 · ${p.commentCount || 0} 评 · ${p.visitCount || 0} 阅`;
+      const author = p.senderNickname || '匿名';
+      const stats = `${p.likeNum || 0} 赞 · ${p.commentNum || 0} 评 · ${p.collectNum || 0} 藏`;
       let text = p.content || '';
-      if (p.contentType === '2' || p.contentType === 2) { try { text = window.marked ? window.marked.parse(text) : text; } catch (e) {} text = window.YHRender.sanitizeHtml(text); }
+      if (p.contentType === 2) { try { text = window.marked ? window.marked.parse(text) : text; } catch (e) {} text = window.YHRender.sanitizeHtml(text); }
       else text = window.YHRender.escapeHtml(text);
-      el.innerHTML = `<div class="yh-post-head">${avatarHtml(p.author && p.author.avatarUrl, author, 32)}<div><div class="yh-post-card-title">${window.YHRender.escapeHtml(p.title || '无标题')}</div><div class="yh-contact-sub">${window.YHRender.escapeHtml(author)} · ${window.YHRender.formatTime(p.createTime)}</div></div></div>
+      el.innerHTML = `<div class="yh-post-head">${avatarHtml(p.senderAvatar, author, 32)}<div><div class="yh-post-card-title">${window.YHRender.escapeHtml(p.title || '无标题')}</div><div class="yh-contact-sub">${window.YHRender.escapeHtml(author)} · ${window.YHRender.formatTime(p.createTime)}</div></div></div>
         <div class="yh-post-card-text">${text}</div><div class="yh-post-card-stats">${stats}</div>`;
-      el.onclick = () => openPost(p.postId);
+      el.onclick = () => openPost(p.id);
       box.appendChild(el);
     });
   }
@@ -441,12 +478,13 @@
   async function openPost(postId) {
     try {
       const data = await window.YHApi.postDetail(postId);
-      const post = data.post || data;
+      const post = (data && data.post) || data || {};
+      const author = post.senderNickname || '匿名';
       let text = post.content || '';
-      if (post.contentType === '2' || post.contentType === 2) { try { text = window.marked ? window.marked.parse(text) : text; } catch (e) {} text = window.YHRender.sanitizeHtml(text); }
+      if (post.contentType === 2) { try { text = window.marked ? window.marked.parse(text) : text; } catch (e) {} text = window.YHRender.sanitizeHtml(text); }
       else text = window.YHRender.escapeHtml(text).replace(/\n/g, '<br/>');
-      openDialog(`<div style="padding:18px"><div style="font-size:20px;font-weight:800;margin-bottom:6px">${window.YHRender.escapeHtml(post.title || '')}</div>
-        <div class="yh-contact-sub" style="margin-bottom:12px">${window.YHRender.escapeHtml((post.author && (post.author.name || post.author.nickname)) || '匿名')}</div>
+      openDialog(`<div style="padding:18px">${avatarHtml(post.senderAvatar, author, 40)}<div style="font-size:20px;font-weight:800;margin:8px 0 6px">${window.YHRender.escapeHtml(post.title || '')}</div>
+        <div class="yh-contact-sub" style="margin-bottom:12px">${window.YHRender.escapeHtml(author)}</div>
         <div style="line-height:1.7">${text}</div></div>`, { width: 640 });
     } catch (e) { snack('获取文章详情失败：' + e.message); }
   }
