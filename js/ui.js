@@ -568,6 +568,13 @@
   function openMsgActionSheet(el, point) {
     const d = msgDataFromEl(el);
     // 菜单项 (icon, label, condition(optional), handler)
+    // Material Icons (经典字体) 的正式 ligature 名字要选"该字体实际包含"的条目：
+    //   - 引用：format_quote 在 material-icons 里存在（不是 format_quote_outlined）
+    //   - 复制：content_copy 存在
+    //   - 编辑：edit 存在（不是 edit_note）
+    //   - 撤销：material-icons 没有 delete_sweep/restore_from_trash，用 backspace 删除语义最贴
+    // 之前用 material-symbols-outlined 家族名是错的，和项目实际加载的 'Material Icons'
+    // 字体不匹配，ligature 全部解析成"不认识的词"→ 退回字体 fallback 显示为空块。
     const items = [];
     items.push({ icon: 'format_quote', label: '引用', fn: () => startQuoting(d) });
     if (d.text && /^(\[图片\]|\[视频\]|\[语音\]|\[文件\])/.test(d.text) === false) {
@@ -580,7 +587,7 @@
       items.push({ icon: 'edit', label: '编辑', fn: () => startEditing(d) });
     }
     if (d.isSelf) {
-      items.push({ icon: 'delete_sweep', label: '撤销', danger: true, fn: () => doRecall(d) });
+      items.push({ icon: 'backspace', label: '撤销', danger: true, fn: () => doRecall(d) });
     }
     if (!items.length) return closeMsgSheet();
 
@@ -605,7 +612,7 @@
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'yh-sheet-item' + (it.danger ? ' danger' : '');
-      b.innerHTML = `<span class="material-symbols-outlined yh-sheet-ico">${it.icon}</span><span class="yh-sheet-lbl">${it.label}</span>`;
+      b.innerHTML = `<span class="material-icons yh-sheet-ico">${it.icon}</span><span class="yh-sheet-lbl">${it.label}</span>`;
       b.addEventListener('click', () => { closeMsgSheet(); it.fn && it.fn(); });
       box.appendChild(b);
     });
@@ -1501,10 +1508,21 @@
       ? 'api.cfknb.vip/yhchat/img_proxy/'
       : (localStorage.getItem('yh_media_proxy') || '');
     const erudaOn = localStorage.getItem('yh_eruda') === '1';
+    const curSig = localStorage.getItem('yh_msg_sig') || '';
     sp.innerHTML = `<div class="yh-settings-page">
       <div class="yh-settings-back">
         <mdui-button-icon icon="arrow_back" id="st-back"></mdui-button-icon>
         <span class="yh-settings-back-title">设置</span>
+      </div>
+      <div class="yh-settings-section">
+        <div class="yh-settings-section-title">消息小尾巴</div>
+        <div class="yh-settings-row">
+          <mdui-text-field id="st-sig" class="yh-full" variant="outlined" label="每条消息后自动追加的字符"
+            value="${window.YHRender.escapeHtml(curSig)}" placeholder="例如：—— 来自 yhchat-web&#10;（支持多行，留空关闭）"
+            rows="3"></mdui-text-field>
+        </div>
+        <div class="yh-settings-hint">发送文本/Markdown/HTML/表单消息时自动追加到正文最后。编辑消息时不会再重复加尾，
+          图片/文件/视频/语音等非文本类内容不会贴小尾巴。</div>
       </div>
       <div class="yh-settings-section">
         <div class="yh-settings-section-title">图片代理</div>
@@ -1523,6 +1541,14 @@
       </div>
     </div>`;
     sp.querySelector('#st-back').onclick = () => { sp.hidden = true; $('#profile-body').hidden = false; };
+    // 消息小尾巴：失焦/回车保存
+    const sigInput = sp.querySelector('#st-sig');
+    sigInput.addEventListener('change', () => {
+      const v = sigInput.value;
+      localStorage.setItem('yh_msg_sig', v);
+      window.YHApi.MSG_SIG = v;
+      snack(v ? '已启用消息小尾巴：发送时会自动追加到文本末尾' : '已关闭消息小尾巴');
+    });
     // 图片代理：失焦时保存
     const proxyInput = sp.querySelector('#st-proxy');
     proxyInput.addEventListener('change', () => {

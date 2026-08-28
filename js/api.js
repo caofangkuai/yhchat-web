@@ -41,6 +41,11 @@
       if (v && !/^https?:\/\//i.test(v)) v = 'https://' + v;
       return v;
     })(),
+    // 消息小尾巴：发送"文本类消息（TEXT/MARKDOWN/HTML/FORM）"时自动追加的内容。
+    // 每行一条，多行可做"—— 来自 xxx"签名。仅发送时生效，编辑消息不会再加（避免重复贴）。
+    MSG_SIG: (function () {
+      return localStorage.getItem('yh_msg_sig') || '';
+    })(),
 
     init() {
       if (!window.protobuf) throw new Error('protobuf.js 未加载');
@@ -297,6 +302,21 @@
       if (opts.quoteVideoTime != null) content.quote_video_time = opts.quoteVideoTime;
       if (opts.mentionedIds && opts.mentionedIds.length) content.mentioned_id = opts.mentionedIds;
 
+      // 消息小尾巴：仅"正文类"消息自动追加到 content.text（TEXT/MARKDOWN/HTML/FORM）。
+      // Post/Image/Video/Audio/File/Expression 不贴尾巴（避免污染媒体字段）。编辑消息的保存
+      // 不走 sendMessage，所以不会重复加尾。
+      const contentType = Number(opts.contentType) || CT.TEXT;
+      if (this.MSG_SIG) {
+        const isTextLike = contentType === CT.TEXT || contentType === CT.MARKDOWN
+          || contentType === CT.HTML || contentType === CT.FORM;
+        if (isTextLike) {
+          const sep = contentType === CT.HTML ? '<br/>' : '\n';
+          const base = content.text || '';
+          // 若原本已有相同尾巴就不重复贴（用户连续点发送时幂等）
+          if (!base.endsWith(this.MSG_SIG)) content.text = base + (base ? sep : '') + this.MSG_SIG;
+        }
+      }
+
       // ⚠️ 服务端对 msgId 格式强校验：接受 32 位小写十六进制字符串（MD5/UUID 去横杠风格）。
       // 大写/带横杠的 UUID（如 A6DC2FBB-FCF1-…）会返回 code=1100「请求参数错误，msgId字段值非法」。
       // 用 crypto.randomUUID() 生成后统一 replace(/-/g,'').toLowerCase()，
@@ -319,7 +339,7 @@
         chat_id: String(opts.chatId == null ? '' : opts.chatId),
         chat_type: Number(opts.chatType) || 0,
         content: content,
-        content_type: Number(opts.contentType) || CT.TEXT
+        content_type: contentType
       };
       if (opts.quoteMsgId) payload.quote_msg_id = String(opts.quoteMsgId);
       if (opts.commandId) payload.command_id = Number(opts.commandId) || 0;
