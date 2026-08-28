@@ -414,22 +414,25 @@
   }
   function renderAddressBook(book) {
     const body = $('#contacts-body'); body.innerHTML = '';
-    // 通讯录按 list_name 区分类型：好友/用户=1，我加入的群聊=2，机器人=3
-    const cats = [
-      { t: 1, label: '好友', items: [] },
-      { t: 2, label: '群聊', items: [] },
-      { t: 3, label: '机器人', items: [] }
-    ];
+    // 通讯录按 list_name 分类展示。list_name 的取值由服务端决定（如"好友""群聊""机器人"等），
+    // 此前硬编码匹配三个固定字符串，若服务端返回值不同则全部被跳过 → 显示"暂无联系人"。
+    // 改为：按 list_name 模式推断 chat_type，无法识别的也照常展示（默认 chat_type=1）。
+    function inferType(ln) {
+      const s = (ln || '').toLowerCase();
+      if (s.includes('群') || s.includes('group')) return 2;
+      if (s.includes('机器') || s.includes('bot')) return 3;
+      return 1; // 默认按好友/用户处理
+    }
+    const map = new Map(); // key = list_name, value = { label, t, items }
     (book || []).forEach(group => {
-      const ln = group.list_name || '';
-      let t = 0;
-      if (ln === '好友' || ln === '用户') t = 1;
-      else if (ln.indexOf('群聊') >= 0) t = 2;
-      else if (ln === '机器人') t = 3;
-      if (!t) return;
-      const cat = cats.find(c => c.t === t);
-      (group.data || []).forEach(it => cat.items.push(it));
+      const ln = group.list_name || '联系人';
+      const key = ln;
+      if (!map.has(key)) map.set(key, { label: ln, t: inferType(ln), items: [] });
+      const cat = map.get(key);
+      (group.data || group.DataList || []).forEach(it => cat.items.push(it));
     });
+    // 按类型排序：好友(1) → 群聊(2) → 机器人(3) → 其他
+    const cats = [...map.values()].sort((a, b) => a.t - b.t);
     cats.forEach(cat => {
       if (!cat.items.length) return;
       const g = document.createElement('div'); g.className = 'yh-contact-group';
@@ -479,7 +482,7 @@
     if (!tabs) return;
     tabs.addEventListener('change', (e) => {
       const v = e.target.value;
-      ['recommend', 'ba', 'mine', 'posts'].forEach(id => { const el = $('#community-' + id); if (el) el.hidden = (id !== v); });
+      ['recommend', 'ba', 'mine', 'posts', 'post-detail'].forEach(id => { const el = $('#community-' + id); if (el) el.hidden = (id !== v); });
       if (v === 'recommend') loadRecommend();
       else if (v === 'ba') loadCommunityBa();
       else if (v === 'mine') loadMine();
@@ -489,8 +492,11 @@
   }
 
   function showCommunityTab(v) {
-    const tabs = $('#community-tabs'); if (tabs) tabs.value = v;
-    ['recommend', 'ba', 'mine', 'posts'].forEach(id => { const el = $('#community-' + id); if (el) el.hidden = (id !== v); });
+    // 'posts' 和 'post-detail' 不是真正的 tab（HTML 中无对应 <mdui-tab>），不能设置 tabs.value，
+    // 否则 mdui-tabs 会因找不到匹配项而重置到首个 tab 并触发 change 事件，把目标 div 又隐藏掉。
+    const tabs = $('#community-tabs');
+    if (tabs && ['recommend', 'ba', 'mine'].includes(v)) tabs.value = v;
+    ['recommend', 'ba', 'mine', 'posts', 'post-detail'].forEach(id => { const el = $('#community-' + id); if (el) el.hidden = (id !== v); });
   }
 
   async function loadCommunityBa() {
@@ -594,8 +600,11 @@
   }
 
   async function openPost(postId) {
-    // 先打开加载中弹窗，数据到达后再替换内容（一次性 innerHTML，避免 slot 不刷新）
-    const d = openDialog('<div style="padding:18px;text-align:center">加载中…</div>', { width: 640 });
+    // 帖子详情以页面展示（非 dialog），填充 #community-post-detail 并切换显示
+    const box = $('#community-post-detail');
+    box.innerHTML = '<div style="padding:18px;text-align:center">加载中…</div>';
+    showCommunityTab('post-detail');
+    box.scrollTop = 0;
     try {
       const data = await window.YHApi.postDetail(postId);
       const post = (data && data.post) || {};
@@ -604,7 +613,11 @@
       const text = postBodyHtml(post);
       const myId = window.YHApi.userId;
       const isMine = post.senderId && String(post.senderId) === String(myId);
-      d.innerHTML = `<div class="yh-post-detail">
+      box.innerHTML = `<div class="yh-post-detail">
+        <div class="yh-post-detail-back">
+          <mdui-button-icon icon="arrow_back" id="pd-back"></mdui-button-icon>
+          <span class="yh-post-detail-back-title">文章详情</span>
+        </div>
         ${avatarHtml(post.senderAvatar, author, 40)}
         <div class="yh-post-detail-meta"><span class="yh-contact-sub">${window.YHRender.escapeHtml(author)}</span></div>
         <div class="yh-post-detail-title">${window.YHRender.escapeHtml(post.title || '')}</div>
@@ -623,37 +636,35 @@
           </div>
         </div>
       </div>`;
-      const close = document.createElement('mdui-button-icon');
-      close.icon = 'close'; close.className = 'yh-dialog-close'; close.setAttribute('aria-label', '关闭');
-      close.onclick = () => { d.open = false; }; d.appendChild(close);
+      box.querySelector('#pd-back').onclick = () => { if (S._baPosts && S._baPosts.length) showCommunityTab('posts'); else loadRecommend(); };
       // 评论
       loadComments(postId);
-      d.querySelector('#btn-comment').onclick = async () => {
-        const inp = d.querySelector('#comment-input'); const v = inp.value.trim();
+      box.querySelector('#btn-comment').onclick = async () => {
+        const inp = box.querySelector('#comment-input'); const v = inp.value.trim();
         if (!v) return;
         try { await window.YHApi.createComment(postId, v); inp.value = ''; snack('评论成功'); loadComments(postId); }
         catch (e) { snack(e.message); }
       };
       // 点赞/收藏
-      d.querySelector('[data-act="like"]').onclick = async (e) => {
+      box.querySelector('[data-act="like"]').onclick = async (e) => {
         try { await window.YHApi.postLike(postId); e.target.classList.toggle('active'); snack('已操作'); }
         catch (err) { snack(err.message); }
       };
-      d.querySelector('[data-act="collect"]').onclick = async (e) => {
+      box.querySelector('[data-act="collect"]').onclick = async (e) => {
         try { await window.YHApi.postCollect(postId); e.target.classList.toggle('active'); snack('已操作'); }
         catch (err) { snack(err.message); }
       };
-      d.querySelector('[data-act="comment"]').onclick = () => { d.querySelector('#comment-input').focus(); };
-      const baBtn = d.querySelector('[data-act="ba"]');
-      if (baBtn) baBtn.onclick = () => { d.open = false; openBaDetail(parseInt(baBtn.dataset.ba)); };
-      const delBtn = d.querySelector('[data-act="delete"]');
+      box.querySelector('[data-act="comment"]').onclick = () => { box.querySelector('#comment-input').focus(); };
+      const baBtn = box.querySelector('[data-act="ba"]');
+      if (baBtn) baBtn.onclick = () => { openBaDetail(parseInt(baBtn.dataset.ba)); };
+      const delBtn = box.querySelector('[data-act="delete"]');
       if (delBtn) delBtn.onclick = () => {
         confirmDialog('删除文章', '确定删除这篇文章吗？', async () => {
-          try { await window.YHApi.deletePost(postId); snack('已删除'); d.open = false; loadMine(); }
+          try { await window.YHApi.deletePost(postId); snack('已删除'); loadMine(); }
           catch (e) { snack(e.message); }
         });
       };
-    } catch (e) { d.innerHTML = `<div style="padding:18px" class="yh-error">${window.YHRender.escapeHtml(e.message)}</div>`; }
+    } catch (e) { box.innerHTML = `<div style="padding:18px" class="yh-error">${window.YHRender.escapeHtml(e.message)}</div>`; }
   }
 
   async function loadComments(postId) {
@@ -804,6 +815,7 @@
         <mdui-list-item id="pf-theme" icon="dark_mode">切换深色模式</mdui-list-item>
         <mdui-list-item id="pf-password" icon="lock">修改密码</mdui-list-item>
         <mdui-list-item id="pf-bind-email" icon="email">绑定邮箱</mdui-list-item>
+        <mdui-list-item id="pf-settings" icon="settings">设置</mdui-list-item>
         <mdui-list-item id="pf-logout" icon="logout">退出登录</mdui-list-item>
       </mdui-list>
     </div>`;
@@ -856,11 +868,74 @@
         catch (e) { snack(e.message); }
       };
     };
+    body.querySelector('#pf-settings').onclick = showSettings;
     body.querySelector('#pf-logout').onclick = () => confirmDialog('退出登录', '确定要退出当前账号吗？', async () => {
       try { await window.YHApi.logout(); } catch (e) {}
       window.YHWs.disconnect(); window.YHApi.clearSession(); location.reload();
     });
   }
+
+  // ============ 设置页 ============
+  function showSettings() {
+    $('#profile-body').hidden = true;
+    const sp = $('#settings-page');
+    sp.hidden = false;
+    const curProxy = localStorage.getItem('yh_media_proxy') || 'api.cfknb.vip/yhchat/img_proxy';
+    const erudaOn = localStorage.getItem('yh_eruda') === '1';
+    sp.innerHTML = `<div class="yh-settings-page">
+      <div class="yh-settings-back">
+        <mdui-button-icon icon="arrow_back" id="st-back"></mdui-button-icon>
+        <span class="yh-settings-back-title">设置</span>
+      </div>
+      <div class="yh-settings-section">
+        <div class="yh-settings-section-title">图片代理</div>
+        <div class="yh-settings-row">
+          <mdui-text-field id="st-proxy" class="yh-full" label="图片代理地址" value="${window.YHRender.escapeHtml(curProxy)}" placeholder="api.cfknb.vip/yhchat/img_proxy"></mdui-text-field>
+        </div>
+        <div class="yh-settings-hint">用于规避云湖 CDN 防盗链，留空则不代理。留空可恢复直连。</div>
+      </div>
+      <div class="yh-settings-section">
+        <div class="yh-settings-section-title">调试工具</div>
+        <div class="yh-settings-row">
+          <span style="flex:1">启用 Eruda 调试控制台</span>
+          <mdui-switch id="st-eruda" ${erudaOn ? 'checked' : ''}></mdui-switch>
+        </div>
+        <div class="yh-settings-hint">Eruda 提供移动端网页调试面板（Console / Network / Elements 等）。</div>
+      </div>
+    </div>`;
+    sp.querySelector('#st-back').onclick = () => { sp.hidden = true; $('#profile-body').hidden = false; };
+    // 图片代理：失焦时保存
+    const proxyInput = sp.querySelector('#st-proxy');
+    proxyInput.addEventListener('change', () => {
+      let v = proxyInput.value.trim();
+      localStorage.setItem('yh_media_proxy', v);
+      // 补全 https:// 前缀（用户可能只填了域名路径）
+      if (v && !/^https?:\/\//i.test(v)) v = 'https://' + v;
+      window.YHApi.MEDIA_PROXY = v;
+      snack('图片代理已保存');
+    });
+    // Eruda 开关
+    const erudaSw = sp.querySelector('#st-eruda');
+    erudaSw.addEventListener('change', () => {
+      const on = erudaSw.checked;
+      localStorage.setItem('yh_eruda', on ? '1' : '0');
+      if (on) loadEruda();
+      else { try { if (window.eruda) window.eruda.destroy(); } catch (e) {} }
+      snack(on ? 'Eruda 已启用' : 'Eruda 已关闭');
+    });
+  }
+
+  function loadEruda() {
+    if (window.eruda) { try { window.eruda.init(); } catch (e) {} return; }
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/eruda';
+    s.onload = () => { try { window.eruda.init(); } catch (e) { console.warn(e); } };
+    s.onerror = () => snack('Eruda 加载失败');
+    document.head.appendChild(s);
+  }
+
+  // 启动时按需加载 Eruda
+  if (localStorage.getItem('yh_eruda') === '1') loadEruda();
 
   // go
   window.YH = { afterLogin, switchView, openChat, loadConversations, renderConversations, renderMessages, S, snack };

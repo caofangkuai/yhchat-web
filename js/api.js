@@ -21,7 +21,13 @@
     // - 部署在 *.jwzhd.com 子域时浏览器会自动带合规 Referer，留空即可正常显示；
     // - 否则需自行部署反向代理（带合规 Referer 拉取），并把本值设为该代理前缀，
     //   例如 "https://your-proxy/?url="（会以 encodeURIComponent(url) 拼接）。
-    MEDIA_PROXY: localStorage.getItem('yh_media_proxy') || '',
+    // 默认使用 api.cfknb.vip 公共代理；可在"我的→设置"中修改。
+    MEDIA_PROXY: (function () {
+      let v = localStorage.getItem('yh_media_proxy');
+      if (v === null) { v = 'https://api.cfknb.vip/yhchat/img_proxy'; }
+      if (v && !/^https?:\/\//i.test(v)) v = 'https://' + v;
+      return v;
+    })(),
 
     init() {
       if (!window.protobuf) throw new Error('protobuf.js 未加载');
