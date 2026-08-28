@@ -710,6 +710,26 @@ mdui-dialog::part(panel) {
 .yh-scroll-sentinel { padding: 16px; text-align: center; }
 .yh-scroll-loading { font-size: 13px; color: rgb(var(--mdui-color-on-surface-variant)); }
 
+/* 会话列表下拉刷新指示器 */
+.yh-pull-refresh {
+  height: 0; overflow: hidden;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: rgb(var(--mdui-color-surface-container-low));
+  opacity: 0;
+  transition: height .2s ease, opacity .2s ease;
+  font-size: 13px; color: rgb(var(--mdui-color-on-surface-variant));
+}
+.yh-pull-ico { font-size: 20px; transition: transform .2s ease; }
+
+/* 聊天历史加载指示器（顶部） */
+.yh-hist-loading {
+  padding: 12px; text-align: center;
+  font-size: 13px; color: rgb(var(--mdui-color-on-surface-variant));
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.yh-hist-spin { font-size: 18px; animation: yh-spin 0.8s linear infinite; }
+@keyframes yh-spin { to { transform: rotate(360deg); } }
+
 /* ============ 桌面端增强 ============ */
 @media (min-width: 840px) {
   /* 自定义滚动条：更细更优雅 */

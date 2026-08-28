@@ -22,7 +22,14 @@
     _baDetailId: null,
     // 消息定时刷新
     _msgTimer: 0,
-    _convTimer: 0
+    _convTimer: 0,
+    // 聊天历史分页：加载更早消息
+    _histLoading: false,
+    _histHasMore: true,
+    // 下拉刷新
+    _pulling: false,
+    _pullDist: 0,
+    _pullStartY: 0
   };
 
   function snack(msg, opts) { try { mdui.snackbar(Object.assign({ message: msg }, opts || {})); } catch (e) { console.warn(e); } }
@@ -504,6 +511,7 @@
     // 清未读
     conv.unreadMessage = 0;
     try { await window.YHApi.dismissNotification(conv.chatId); } catch (e) {}
+    S._histHasMore = true; S._histLoading = false;
     await loadMessages(conv.chatId, conv.chatType);
     startMsgRefresh();
   }
@@ -556,6 +564,112 @@
       });
       newMsgs.forEach(m => appendMessage(m));
     } catch (e) { /* 后台刷新静默失败 */ }
+  }
+
+  // ============ 聊天历史：滚到顶部加载更早消息 ============
+  async function loadEarlierMessages() {
+    if (!S.active || S._histLoading || !S._histHasMore || !S.messages.length) return;
+    S._histLoading = true;
+    const box = $('#chat-messages');
+    const oldScrollHeight = box.scrollHeight;
+    const oldScrollTop = box.scrollTop;
+    // 取最早一条消息的 msg_id 作为游标
+    const oldest = S.messages[0];
+    const cursorId = oldest && (oldest.msg_id || oldest.msgId);
+    if (!cursorId) { S._histLoading = false; return; }
+    // 顶部加载指示器
+    const indicator = document.createElement('div');
+    indicator.className = 'yh-hist-loading';
+    indicator.innerHTML = '<span class="material-icons yh-hist-spin">refresh</span> 加载中…';
+    box.insertBefore(indicator, box.firstChild);
+    try {
+      const msgs = await window.YHApi.getMessages(S.active.chatId, S.active.chatType, 30, cursorId);
+      const existingIds = new Set(S.messages.map(m => m.msg_id));
+      const older = (msgs || []).filter(m => !existingIds.has(m.msg_id))
+        .map(m => window.YHWs ? normalizeRest(m) : m);
+      indicator.remove();
+      if (!older.length) { S._histHasMore = false; return; }
+      // 按时间升序排列（最旧的在最前）
+      older.sort((a, b) => {
+        const ta = (a && (a.send_time || a.msg_seq || 0)) * 1 || 0;
+        const tb = (b && (b.send_time || b.msg_seq || 0)) * 1 || 0;
+        return ta - tb;
+      });
+      // 在列表头部插入旧消息
+      const myId = window.YHApi.userId;
+      older.forEach(m => {
+        const showName = m.sender && m.sender.chat_id !== myId;
+        const bubble = window.YHRender.renderBubble(m, { showName });
+        box.insertBefore(bubble, box.firstChild);
+      });
+      S.messages = older.concat(S.messages);
+      // 保持滚动位置不变（不跳到顶部）
+      const newScrollHeight = box.scrollHeight;
+      box.scrollTop = oldScrollTop + (newScrollHeight - oldScrollHeight);
+      bindMessageEvents(box);
+    } catch (e) { indicator.remove(); }
+    finally { S._histLoading = false; }
+  }
+
+  // ============ 消息列表下拉刷新 ============
+  function bindPullRefresh() {
+    const container = $('#conv-list');
+    if (!container || container._pullBound) return;
+    container._pullBound = true;
+    // 创建下拉指示器
+    const indicator = document.createElement('div');
+    indicator.className = 'yh-pull-refresh';
+    indicator.innerHTML = '<span class="material-icons yh-pull-ico">arrow_downward</span><span class="yh-pull-txt">下拉刷新</span>';
+    container.parentElement.insertBefore(indicator, container);
+
+    const THRESHOLD = 60;
+    let startY = 0, pulling = false, dist = 0;
+
+    // 触摸下拉（移动端）
+    container.addEventListener('touchstart', (e) => {
+      if (container.scrollTop <= 0) { startY = e.touches[0].clientY; pulling = true; dist = 0; }
+    }, { passive: true });
+    container.addEventListener('touchmove', (e) => {
+      if (!pulling) return;
+      dist = e.touches[0].clientY - startY;
+      if (dist > 0) {
+        indicator.style.height = Math.min(dist, 80) + 'px';
+        indicator.style.opacity = Math.min(dist / THRESHOLD, 1);
+        const ico = indicator.querySelector('.yh-pull-ico');
+        const txt = indicator.querySelector('.yh-pull-txt');
+        if (dist >= THRESHOLD) { ico.style.transform = 'rotate(180deg)'; txt.textContent = '释放刷新'; }
+        else { ico.style.transform = ''; txt.textContent = '下拉刷新'; }
+      }
+    }, { passive: true });
+    container.addEventListener('touchend', () => {
+      if (!pulling) return;
+      pulling = false;
+      if (dist >= THRESHOLD) {
+        indicator.style.height = '40px';
+        indicator.querySelector('.yh-pull-ico').style.transform = 'rotate(180deg)';
+        indicator.querySelector('.yh-pull-txt').textContent = '刷新中…';
+        loadConversations().then(() => {
+          indicator.style.height = '0'; indicator.style.opacity = '0';
+        });
+      } else {
+        indicator.style.height = '0'; indicator.style.opacity = '0';
+      }
+      dist = 0;
+    });
+
+    // 鼠标滚轮到顶部（桌面端）
+    container.addEventListener('wheel', (e) => {
+      if (container.scrollTop <= 0 && e.deltaY < 0 && !S._pulling) {
+        S._pulling = true;
+        indicator.style.height = '40px'; indicator.style.opacity = '1';
+        indicator.querySelector('.yh-pull-ico').style.transform = 'rotate(180deg)';
+        indicator.querySelector('.yh-pull-txt').textContent = '刷新中…';
+        loadConversations().then(() => {
+          indicator.style.height = '0'; indicator.style.opacity = '0';
+          setTimeout(() => { S._pulling = false; }, 1000);
+        });
+      }
+    }, { passive: true });
   }
 
   function normalizeRest(m) {
@@ -1015,10 +1129,19 @@
       }
     });
     input.addEventListener('input', () => { if (S.active) window.YHWs.sendDraft(S.active.chatId, input.value); });
-    $('#btn-chat-back').onclick = () => { $('#view-messages').classList.remove('chat-open'); S.active = null; cancelActionMode(); renderConversations(); };
+    $('#btn-chat-back').onclick = () => { $('#view-messages').classList.remove('chat-open'); S.active = null; stopMsgRefresh(); cancelActionMode(); renderConversations(); };
     $('#btn-chat-info').onclick = () => { if (S.active) showDetail(S.active.chatType, S.active.chatId, S.active.name); };
     $('#btn-search').onclick = openSearch;
     $('#btn-new-chat').onclick = openSearch;
+    // 聊天消息滚到顶部自动加载更早消息
+    const msgBox = $('#chat-messages');
+    if (msgBox) {
+      msgBox.addEventListener('scroll', () => {
+        if (msgBox.scrollTop < 60) loadEarlierMessages();
+      }, { passive: true });
+    }
+    // 会话列表下拉刷新
+    bindPullRefresh();
     // 聊天输入栏左边：把“图片链接 / 文件链接 / 语音链接 / 视频链接”改成一个
     // <select> 下拉（见 index.html）。点“+”展开菜单项的路径不再使用。
     const attachSel = $('#attach-select');
@@ -1718,6 +1841,8 @@
         throw new Error('未知的会话类型');
       }
       // 重新构建完整内容后一次性替换
+      // 判断是否已加入群聊：会话列表中存在该群 → 已是成员
+      const isJoined = type === 2 && S.conversations.some(c => String(c.chatId) === String(id));
       const inviteBtn = type === 2 ? '<mdui-button variant="tonal" id="d-invite" icon="person_add">邀请成员</mdui-button>' : '';
       d.innerHTML = `<div style="padding:18px">
         <div style="text-align:center">${avatarHtml(avatar, name, 72)}<div style="font-size:20px;font-weight:800;margin-top:8px">${window.YHRender.escapeHtml(name || fallbackName || '')}</div>
@@ -1726,8 +1851,9 @@
         <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
           <mdui-button variant="filled" id="d-msg">发消息</mdui-button>
           ${type === 1 ? '<mdui-button variant="outlined" id="d-add">加好友</mdui-button>' : ''}
-          ${type === 2 ? '<mdui-button variant="outlined" id="d-join">加入群聊</mdui-button>' : ''}
+          ${type === 2 && !isJoined ? '<mdui-button variant="outlined" id="d-join">加入群聊</mdui-button>' : ''}
           ${inviteBtn}
+          <mdui-button variant="text" id="d-share" icon="share">分享链接</mdui-button>
         </div></div>`;
       const close = document.createElement('mdui-button-icon');
       close.icon = 'close'; close.className = 'yh-dialog-close'; close.setAttribute('aria-label', '关闭');
@@ -1737,6 +1863,20 @@
       const join = d.querySelector('#d-join'); if (join) join.onclick = async () => { try { await window.YHApi.joinGroup(id); snack('已申请加入'); } catch (e) { snack(e.message); } };
       const invite = d.querySelector('#d-invite');
       if (invite) invite.onclick = () => openInviteToGroupDialog({ groupId: id, groupName: name || fallbackName || '' });
+      // 分享链接
+      const share = d.querySelector('#d-share');
+      if (share) share.onclick = async () => {
+        try {
+          share.loading = true;
+          const data = await window.YHApi.createShare({ chatId: id, chatType: type, chatName: name || fallbackName || '' });
+          const url = data && data.shareUrl ? data.shareUrl : '';
+          if (url) {
+            try { await navigator.clipboard.writeText(url); snack('分享链接已复制：' + url); }
+            catch (_) { snack('分享链接：' + url); }
+          } else { snack('分享链接创建失败'); }
+        } catch (e) { snack('分享失败：' + e.message); }
+        finally { share.loading = false; }
+      };
     } catch (e) {
       d.innerHTML = `<div style="padding:18px" class="yh-error">${window.YHRender.escapeHtml(e.message)}</div>`;
       const close = document.createElement('mdui-button-icon');
@@ -1750,7 +1890,11 @@
   // 提供两种方式：
   //   1) 下拉：从当前已加载的通讯录（S._book）里选一个好友（chatType=1）或机器人（chatType=3）
   //   2) 手动：输入 chatId 并选择 chatType
-  function openInviteToGroupDialog({ groupId, groupName }) {
+  async function openInviteToGroupDialog({ groupId, groupName }) {
+    // 通讯录未加载时自动拉取，避免用户需要先去联系人页刷新
+    if (!S._book || !S._book.length) {
+      try { S._book = await window.YHApi.addressBook(); } catch (e) { snack('获取通讯录失败：' + e.message); }
+    }
     // 把通讯录展平成一个 [{id,name,chatType}] 的列表，优先用户组 / 机器人组。
     const friends = [];
     (S._book || []).forEach(group => {

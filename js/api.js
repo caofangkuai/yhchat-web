@@ -470,6 +470,16 @@
       return r.data || true;
     },
 
+    // ---------- Share (JSON) ----------
+    // 创建分享链接：POST /v1/share/create
+    // 请求体: { chatId, chatType, chatName }
+    // chatType: 1-用户 2-群聊 3-机器人
+    async createShare({ chatId, chatType, chatName }) {
+      const r = await this.rawJson('/v1/share/create', { chatId: String(chatId), chatType: Number(chatType), chatName: chatName || '' });
+      if (!r || r.code !== 1) throw new Error((r && r.msg) || '创建分享失败');
+      return r.data;
+    },
+
     // ---------- Community (JSON) ----------
     // typ: 1-文本 2-markdown（post-list 的 typ）
     async communityPosts(baId, page = 1, size = 20, typ = 1) {
