@@ -33,10 +33,11 @@
     // - 部署在 *.jwzhd.com 子域时浏览器会自动带合规 Referer，留空即可正常显示；
     // - 否则需自行部署反向代理（带合规 Referer 拉取），并把本值设为该代理前缀，
     //   例如 "https://your-proxy/?url="（会以 encodeURIComponent(url) 拼接）。
-    // 默认使用 api.cfknb.vip 公共代理；可在"我的→设置"中修改。
+    // 默认使用 api.cfknb.vip 公共代理，已内置 Referer: http://myapp.jwznb.com 与
+    // *.jwznb.com / *.jwzhd.com 域名白名单。路径为 /yhchat/img_proxy/<URL>。
     MEDIA_PROXY: (function () {
       let v = localStorage.getItem('yh_media_proxy');
-      if (v === null) { v = 'https://api.cfknb.vip/yhchat/img_proxy'; }
+      if (v === null) { v = 'https://api.cfknb.vip/yhchat/img_proxy/'; }
       if (v && !/^https?:\/\//i.test(v)) v = 'https://' + v;
       return v;
     })(),
@@ -62,11 +63,19 @@
     },
 
     // 将媒体 URL 经反向代理转发（用于规避 jwznb CDN 的 Referer 校验）。
+    // MEDIA_PROXY 两种形式：
+    //   1) 以 "/" 结尾（新默认：https://api.cfknb.vip/yhchat/img_proxy/）
+    //      → 路径拼接：proxy + encodeURI(url) 再 decodeURIComponent 保留编码后拼入 pathname，
+    //        decodeURI 还原中文/空格 → 再编码一次为 encodeURI 确保浏览器按合法 URL 发请求；
+    //        实际上代理已经做了 decodeURIComponent，所以直接 url 本身贴到 path 上即可。
+    //   2) 否则（旧形式，例如 https://proxy/?url= ）
+    //      → 仍然用 encodeURIComponent(url) 做 query 拼接
     mediaUrl(url) {
       if (!url) return url;
       if (typeof url !== 'string') return url;
       const proxy = this.MEDIA_PROXY;
       if (!proxy) return url;
+      if (proxy.endsWith('/')) return proxy + url;
       return proxy + encodeURIComponent(url);
     },
 

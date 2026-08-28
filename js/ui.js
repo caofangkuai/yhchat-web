@@ -1211,7 +1211,9 @@
     $('#profile-body').hidden = true;
     const sp = $('#settings-page');
     sp.hidden = false;
-    const curProxy = localStorage.getItem('yh_media_proxy') || 'api.cfknb.vip/yhchat/img_proxy';
+    const curProxy = localStorage.getItem('yh_media_proxy') == null
+      ? 'api.cfknb.vip/yhchat/img_proxy/'
+      : (localStorage.getItem('yh_media_proxy') || '');
     const erudaOn = localStorage.getItem('yh_eruda') === '1';
     sp.innerHTML = `<div class="yh-settings-page">
       <div class="yh-settings-back">
@@ -1221,7 +1223,7 @@
       <div class="yh-settings-section">
         <div class="yh-settings-section-title">图片代理</div>
         <div class="yh-settings-row">
-          <mdui-text-field id="st-proxy" class="yh-full" label="图片代理地址" value="${window.YHRender.escapeHtml(curProxy)}" placeholder="api.cfknb.vip/yhchat/img_proxy"></mdui-text-field>
+          <mdui-text-field id="st-proxy" class="yh-full" label="图片代理地址" value="${window.YHRender.escapeHtml(curProxy)}" placeholder="api.cfknb.vip/yhchat/img_proxy/"></mdui-text-field>
         </div>
         <div class="yh-settings-hint">用于规避云湖 CDN 防盗链，留空则不代理。留空可恢复直连。</div>
       </div>
@@ -1242,6 +1244,9 @@
       localStorage.setItem('yh_media_proxy', v);
       // 补全 https:// 前缀（用户可能只填了域名路径）
       if (v && !/^https?:\/\//i.test(v)) v = 'https://' + v;
+      // 路径形式的代理末尾要 "/"，否则 mediaUrl() 会按 query 形式 encodeURIComponent
+      // 贴到 url= 后面。保存前标准化一下：如果不是 "?url=" 结尾就补 '/'
+      if (v && !v.endsWith('/') && !/[?&](?:url|src|target)=?$/.test(v)) v += '/';
       window.YHApi.MEDIA_PROXY = v;
       snack('图片代理已保存');
     });
