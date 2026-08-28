@@ -94,7 +94,14 @@
       let body;
       const headers = {};
       if (reqType) {
-        const Req = root.lookupType(reqType);
+        let Req;
+        try {
+          Req = root.lookupType(reqType);
+        } catch (e) {
+          console.error('[rawProto] lookupType 失败，reqType=', reqType,
+            '。请检查 proto.js 中是否定义了该 message，或浏览器是否缓存了旧 proto.js。建议清缓存/强刷。', e);
+          throw new Error('proto 消息类型未注册: ' + reqType + '（浏览器可能缓存了旧版 proto.js，请 Ctrl+Shift+R 强刷）');
+        }
         // YHBuildRoot 使用 parse(..., { keepCase: true })，字段名按 proto 文本原样
         // （snake_case：group_id / msg_count）保存，和我们在 api.js 中构造 payload 的命名一致。
         // Req.create 直接按字段名赋值即可，不需要再走 fromObject 做转换。
@@ -105,12 +112,22 @@
           console.warn('[rawProto] verify warn for ' + reqType + ':', payload_err, payload);
         }
         const msg = Req.create(payload || {});
-        body = Req.encode(msg).finish();
+        try {
+          body = Req.encode(msg).finish();
+        } catch (e) {
+          console.error('[rawProto] encode 失败 for', reqType, 'payload=', payload,
+            'fields=', Object.keys(Req.fields), 'error=', e);
+          throw new Error(`proto encode 失败(${reqType}): ${e && e.message ? e.message : e}`);
+        }
         headers['Content-Type'] = 'application/x-protobuf';
         // debug 用：抓包无请求体时可以定位到"编码零字节"
         if (!body || body.length === 0) {
-          console.warn('[rawProto] encode produced ZERO-length body for', reqType,
+          // 0 字节的请求体对服务端基本等于"没传任何字段"，99% 情况下是 bug。
+          // 直接抛异常避免把错误伪装成 success 让用户抓包空请求体。
+          console.error('[rawProto] encode produced ZERO-length body for', reqType,
             'payload=', payload, 'msg=', msg, 'fields=', Object.keys(Req.fields));
+          throw new Error('proto encode 产出 0 字节请求体: ' + reqType +
+            '（通常是字段名与 proto 不匹配，或所有字段都为默认零值）');
         }
       }
       const resp = await fetch(BASE + path, {
@@ -272,14 +289,14 @@
       if (opts.mentionedIds && opts.mentionedIds.length) content.mentioned_id = opts.mentionedIds;
 
       const payload = {
-        msg_id: crypto.randomUUID().toUpperCase(),
-        chat_id: opts.chatId,
-        chat_type: opts.chatType,
+        msg_id: String(crypto.randomUUID ? crypto.randomUUID() : uuid()).toUpperCase(),
+        chat_id: String(opts.chatId == null ? '' : opts.chatId),
+        chat_type: Number(opts.chatType) || 0,
         content: content,
-        content_type: opts.contentType || CT.TEXT
+        content_type: Number(opts.contentType) || CT.TEXT
       };
-      if (opts.quoteMsgId) payload.quote_msg_id = opts.quoteMsgId;
-      if (opts.commandId) payload.command_id = opts.commandId;
+      if (opts.quoteMsgId) payload.quote_msg_id = String(opts.quoteMsgId);
+      if (opts.commandId) payload.command_id = Number(opts.commandId) || 0;
 
       const r = await this.rawProto('/v1/msg/send-message', 'yh_msg.send_message_send', 'yh_msg.send_message', payload);
       if (r.status.code !== 1) throw new Error(r.status.msg || '发送失败');
