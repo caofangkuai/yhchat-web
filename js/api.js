@@ -55,14 +55,20 @@
       return data;
     },
 
-    async rawProto(path, reqType, resType, payload) {
-      const Req = root.lookupType(reqType);
-      const msg = Req.create(payload || {});
-      const buf = Req.encode(msg).finish();
+    async rawProto(path, reqType, resType, payload, method = 'POST') {
+      // reqType 为 null 表示该接口无请求体（如 /v1/user/info 为 GET，仅靠 token 头鉴权）
+      let body;
+      const headers = {};
+      if (reqType) {
+        const Req = root.lookupType(reqType);
+        const msg = Req.create(payload || {});
+        body = Req.encode(msg).finish();
+        headers['Content-Type'] = 'application/x-protobuf';
+      }
       const resp = await fetch(BASE + path, {
-        method: 'POST',
-        headers: this._headers({ 'Content-Type': 'application/x-protobuf' }),
-        body: buf
+        method,
+        headers: this._headers(headers),
+        body
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
       const ab = await resp.arrayBuffer();
@@ -100,14 +106,16 @@
     },
 
     async getSmsCaptcha(mobile, captchaCode, captchaId) {
+      // 注意：服务端字段名为 id（与官方客户端 SmsCaptchaRequest 一致），不是 captchaId
       return this.rawJson('/v1/verification/get-verification-code', {
-        mobile, code: captchaCode, captchaId, deviceId: this.deviceId
+        mobile, code: captchaCode, id: captchaId
       });
     },
 
     // ---------- Profile ----------
     async getProfile() {
-      const r = await this.rawProto('/v1/user/info', null, 'yh_user.info', {});
+      // /v1/user/info 仅支持 GET（POST 会 404），无请求体，靠 token 头鉴权
+      const r = await this.rawProto('/v1/user/info', null, 'yh_user.info', {}, 'GET');
       return r;
     },
 
