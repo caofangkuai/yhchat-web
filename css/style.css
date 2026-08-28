@@ -47,22 +47,50 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
 .yh-login-foot { text-align: center; font-size: 12px; color: rgb(var(--mdui-color-on-surface-variant)); margin-top: 18px; }
 
 /* ============ 主布局 ============ */
-#main-view { position: fixed; inset: 0; display: flex; }
-.yh-rail { display: flex; }
+#main-view { position: fixed; inset: 0; display: flex; overflow: hidden; }
+/* 桌面端左侧 navigation-rail：显式固定宽度并声明 max-width，防止 mdui 在
+   shadow DOM 中算出异常宽度（300+ px）直接把右侧 content 挤出视口。 */
+.yh-rail {
+  display: flex;
+  width: 80px; max-width: 80px; min-width: 80px;
+  flex-shrink: 0;
+  /* 让 rail 自己承担 shadow DOM 顶部间距/边距，不因为它的额外 padding 推歪右侧 content */
+  box-sizing: border-box;
+}
 .yh-bottom-nav { display: none; }
-#content { flex: 1; position: relative; min-width: 0; }
-.view { position: absolute; inset: 0; display: flex; flex-direction: column; }
+#content {
+  flex: 1; position: relative; min-width: 0;
+  /* 最关键的一句：rail 是 flex 兄弟、content 是"剩余宽度"，一旦 rail 的 shadow DOM
+     有 overflow、margin 或自定义 --mdui 尺寸推高自己，就会把 content 的右侧推到
+     视口外 → 加 overflow:hidden 保证 content 在自己的宽度里裁剪；内部的
+     .view/.yh-messages 再自己滚动，不会出现"toolbar 右边内容被挡/右侧滚不到"。 */
+  overflow: hidden;
+  /* 给个显式高度约束，避免子项 min-height:auto 把整个区撑高（此时 topbar sticky
+     不生效）。 */
+  height: 100vh;
+}
+.view {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  min-height: 0; min-width: 0; overflow: hidden;
+}
 
-/* mdui TopAppBar（small 型）标准高度约 64px，flex column 下 sticky 没问题，
-   但组件未连接时（升级/SSR 间隙）或在 shadow DOM 中布局参与度不稳定时仍可能与
-   下方内容发生 1px 级重叠。这里给顶栏显式声明高度 + 给内容第一行一个最小边距，
-   保证在 PC / 手机端内容都不会被 toolbar 吃掉。同时 z-index 提至 8，避免被
-   rail/nav 里的阴影或 ripple 叠盖时丢失交互事件。 */
+/* mdui TopAppBar（small 型）标准高度约 64px。
+   之前用 sticky 导致的问题：
+   - sticky 要求"最近可滚动祖先"存在；否则 mdui 自己实现的 shadow DOM 顶栏会按
+     fixed 样式定位，但其 containing block 是 <view> 而不是 #content，在 PC 端
+     rail + content 的双栏布局下，会出现"顶栏宽于 content"的情况，直接把右侧
+     chat-pane 的 20~64px 盖住 → 头像/发送按钮/滚动条看不见。
+   修复：顶栏用 static（flex-shrink:0 + 固定高度）。它就是 flex column 的第一
+   行，下面滚动区自然从它下方开始，完全不会遮挡兄弟节点。 */
 :root { --yh-topbar-h: 64px; }
 .yh-topbar {
-  position: sticky; top: 0; z-index: 8;
+  position: static;
+  z-index: 8;
   min-height: var(--yh-topbar-h); height: var(--yh-topbar-h);
   flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 /* mdui-subtabs / yh-subtabs 紧跟顶栏时，内容（列表/滚动区）起点一定要在其下方，
    否则 tabs 会叠在列表最上面一行，造成首项"消失"（被 toolbar + tabs 覆盖）。 */
@@ -71,11 +99,26 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
 .yh-scroll { flex: 1; overflow-y: auto; padding: 8px 12px 16px; min-height: 0; }
 .yh-conv-list, .yh-messages, .yh-ba-list, .yh-posts, #community-ba, #community-posts, #community-post-detail, #contacts-body, #profile-body { min-height: 0; }
 
-/* 消息：双栏 */
-.yh-view-messages { flex-direction: row; }
-.yh-conv-pane { width: 320px; min-width: 280px; border-right: 1px solid rgb(var(--mdui-color-outline-variant)); display: flex; flex-direction: column; min-height: 0; }
-.yh-conv-list { flex: 1; overflow-y: auto; }
-.yh-chat-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* 消息：双栏（PC）
+   两个 pane 的宽度 + overflow 约束到位，就不会出现"聊天窗右侧被顶栏/rail 压住"。
+   - 左边会话列表 320px，不压缩
+   - 右边 chat-pane 占剩余空间（flex:1），最小宽高 0，内部自己滚动 */
+.yh-view-messages { flex-direction: row; min-width: 0; min-height: 0; }
+.yh-conv-pane {
+  width: 320px; max-width: 320px; min-width: 280px; flex-shrink: 0;
+  border-right: 1px solid rgb(var(--mdui-color-outline-variant));
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+}
+.yh-conv-list { flex: 1; overflow-y: auto; min-height: 0; }
+.yh-chat-pane {
+  flex: 1; display: flex; flex-direction: column;
+  min-width: 0; min-height: 0; overflow: hidden;
+}
+/* 空会话提示 */
+.yh-empty-tip {
+  padding: 48px 16px; text-align: center; color: rgb(var(--mdui-color-on-surface-variant));
+  line-height: 1.8;
+}
 
 /* 会话项 */
 .yh-conv {
@@ -216,9 +259,17 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
   .yh-bottom-nav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 20; }
   #content { padding-bottom: 64px; }
   .yh-only-mobile { display: inline-flex; }
-  .yh-view-messages { flex-direction: column; }
-  .yh-conv-pane { width: 100%; min-width: 0; border-right: none; flex: 1; }
-  .yh-chat-pane { position: absolute; inset: 0; background: rgb(var(--mdui-color-background)); z-index: 15; display: none; }
+  .yh-view-messages { flex-direction: column; min-width: 0; min-height: 0; }
+  .yh-conv-pane {
+    width: 100%; min-width: 0; max-width: none; border-right: none;
+    flex: 1;
+  }
+  .yh-chat-pane {
+    position: absolute; inset: 0;
+    background: rgb(var(--mdui-color-background));
+    z-index: 15;
+    display: none;
+  }
   .yh-view-messages.chat-open .yh-conv-pane { display: none; }
   .yh-view-messages.chat-open .yh-chat-pane { display: flex; }
   .yh-msg { max-width: 86%; }
@@ -229,6 +280,11 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
 }
 @media (min-width: 840px) {
   .yh-chat-pane { display: flex !important; }
+  /* PC 端 rail 固定 80px 宽时，mdui 的 shadow DOM 尺寸不生效的话组件会拉得很窄，
+     用 width/max-width/min-width 三把锁锁定，并强制对齐内部图标位置。 */
+  .yh-rail {
+    width: 80px; max-width: 80px; min-width: 80px;
+  }
 }
 
 /* ============ 社区子标签 ============ */

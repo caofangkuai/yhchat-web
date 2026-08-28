@@ -190,13 +190,22 @@
   // ============ 会话 / 聊天 ============
   async function loadConversations() {
     try {
-      S.conversations = await window.YHApi.listConversations();
-      // 加载置顶列表
+      // 允许 listConversations 返回 []，但一旦抛错要立刻提示；避免静默导致用户
+      // 看到"消息页空空如也、连个报错都没有"。
+      const list = await window.YHApi.listConversations();
+      S.conversations = Array.isArray(list) ? list : [];
+      // 加载置顶列表（与渲染解耦：失败不应把整个会话列表也吞掉）。
       try {
         const sd = await window.YHApi.stickyList();
-        S._pinned = ((sd && sd.sticky) || []).map(s => String(s.chatId));
+        if (sd && Array.isArray(sd.sticky)) {
+          S._pinned = sd.sticky.map(s => s && (s.chat_id || s.chatId)).filter(Boolean).map(String);
+        } else if (Array.isArray(sd)) {
+          S._pinned = sd.map(s => s && (s.chat_id || s.chatId)).filter(Boolean).map(String);
+        } else {
+          S._pinned = S._pinned || [];
+        }
       } catch (e) { S._pinned = S._pinned || []; }
-      // 排序：置顶优先，再按时间
+      // 排序：置顶优先，再按时间倒序（越新越靠前）
       S.conversations.sort((a, b) => {
         const ap = (S._pinned || []).includes(String(a.chatId)) ? 1 : 0;
         const bp = (S._pinned || []).includes(String(b.chatId)) ? 1 : 0;
@@ -204,6 +213,14 @@
         return (b.timestampMs || 0) - (a.timestampMs || 0);
       });
       renderConversations();
+      // 没有会话时给个可见提示，而不是一片白
+      const listEl = $('#conv-list');
+      if (!S.conversations.length) {
+        const tip = document.createElement('div');
+        tip.className = 'yh-empty-tip';
+        tip.innerHTML = '还没有会话<br/><span style="opacity:.6;font-size:12px">点击右上角 + 发起聊天</span>';
+        if (listEl) listEl.appendChild(tip);
+      }
     } catch (e) { snack('获取会话失败：' + e.message); }
   }
 
@@ -273,7 +290,18 @@
   async function loadMessages(chatId, chatType) {
     try {
       const msgs = await window.YHApi.getMessages(chatId, chatType, 30);
-      S.messages = msgs.map(m => window.YHWs ? normalizeRest(m) : m);
+      // 列表接口返回的顺序通常是"从新到旧"（最近一条放最前），而展示我们要求
+      // "新的在下面（靠输入框一侧）" → 需要按时间升序稳定排序。
+      // 先按 send_time（秒/毫秒都兼容）升序，再按 msg_seq 保证同秒两条消息有稳定顺序。
+      const ordered = [...msgs].sort((a, b) => {
+        const ta = (a && (a.send_time || a.sendTime || a.msg_seq || 0)) * 1 || 0;
+        const tb = (b && (b.send_time || b.sendTime || b.msg_seq || 0)) * 1 || 0;
+        if (ta !== tb) return ta - tb;
+        const sa = (a && (a.msg_seq || a.msgSeq)) * 1 || 0;
+        const sb = (b && (b.msg_seq || b.msgSeq)) * 1 || 0;
+        return sa - sb;
+      });
+      S.messages = ordered.map(m => window.YHWs ? normalizeRest(m) : m);
       renderMessages();
     } catch (e) { snack('获取消息失败：' + e.message); }
   }
@@ -286,6 +314,21 @@
     };
   }
 
+  // 统一把滚动容器滚到底部：
+  // 1) 先 requestAnimationFrame 一次，等 layout/reflow（浏览器在 appendChild 后未必立刻更新 scrollHeight）
+  // 2) 再把 scrollTop 设成最大值（scrollHeight - clientHeight），比直接 = scrollHeight 更稳
+  //    （部分浏览器 / 部分字体下 scrollHeight 本身可能在 overflow:overlay/scrollbar-gutter 变化时抖动）
+  // 3) 再补一次 rAF 兜底，处理 mdui 组件 / 字体 / 图片加载引起的二次尺寸变化。
+  function scrollMessagesToBottom() {
+    const box = $('#chat-messages');
+    if (!box) return;
+    const gotoBottom = () => { try { box.scrollTop = box.scrollHeight - box.clientHeight; } catch (_) {} };
+    requestAnimationFrame(() => {
+      gotoBottom();
+      requestAnimationFrame(gotoBottom);
+    });
+  }
+
   function renderMessages() {
     const box = $('#chat-messages'); box.innerHTML = '';
     const myId = window.YHApi.userId;
@@ -295,7 +338,7 @@
       box.appendChild(window.YHRender.renderBubble(m, { showName }));
     });
     bindMessageEvents(box);
-    box.scrollTop = box.scrollHeight;
+    scrollMessagesToBottom();
   }
 
   function appendMessage(msg) {
@@ -303,10 +346,15 @@
     const myId = window.YHApi.userId;
     const showName = msg.sender && msg.sender.chat_id !== myId;
     const box = $('#chat-messages');
+    // 只有当用户离底部已经很近（<120px，说明他本来就等着看新消息）时才自动滚到底；
+    // 否则保留用户的阅读位置（比如正在翻历史消息，不应被新消息打断）。
+    const shouldAutoScroll = box
+      ? (box.scrollHeight - box.clientHeight - box.scrollTop) < 120
+      : true;
     box.appendChild(window.YHRender.renderBubble(msg, { showName }));
     bindMessageEvents(box);
-    box.scrollTop = box.scrollHeight;
     S.messages.push(msg);
+    if (shouldAutoScroll) scrollMessagesToBottom();
   }
 
   function bindMessageEvents(box) {
