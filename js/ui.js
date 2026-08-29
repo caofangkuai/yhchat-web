@@ -1924,8 +1924,8 @@
       const invite = d.querySelector('#d-invite');
       if (invite) invite.onclick = () => openInviteToGroupDialog({ groupId: id, groupName: name || fallbackName || '' });
       // 群文件
-      const filesBtn = d.querySelector('#d-files');
-      if (filesBtn) filesBtn.onclick = () => { d.open = false; openGroupFilesDialog({ chatId: id, chatName: name || fallbackName || '' }); };
+      const filesBtnEl = d.querySelector('#d-files');
+      if (filesBtnEl) filesBtnEl.onclick = () => { d.open = false; openGroupFilesDialog({ chatId: id, chatName: name || fallbackName || '' }); };
       // 分享链接
       const share = d.querySelector('#d-share');
       if (share) share.onclick = async () => {
