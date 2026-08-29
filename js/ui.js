@@ -2055,6 +2055,10 @@
     const erudaOn = localStorage.getItem('yh_eruda') === '1';
     const curSig = localStorage.getItem('yh_msg_sig') || '';
     const cronCfg = loadCronConfig();
+    // 多选目标初始化：兼容旧格式 cfg.target
+    const _cronTargets = cronCfg.targets || (cronCfg.target ? [cronCfg.target] : ['all']);
+    const cronTargetSet = new Set((_cronTargets || []).map(String));
+    const cronAllChecked = cronTargetSet.has('all') || cronTargetSet.size === 0;
     sp.innerHTML = `<div class="yh-settings-page">
       <div class="yh-settings-back">
         <mdui-button-icon icon="arrow_back" id="st-back"></mdui-button-icon>
@@ -2092,12 +2096,26 @@
           <mdui-switch id="st-cron-on" ${cronCfg.enabled ? 'checked' : ''}></mdui-switch>
         </div>
         <div class="yh-settings-row">
-          <select id="st-cron-target" class="yh-attach-select" style="flex:1">
-            <option value="all" ${cronCfg.target === 'all' || !cronCfg.target ? 'selected' : ''}>所有人（全部会话）</option>
-            ${(S.conversations || []).map(c => `<option value="${window.YHRender.escapeHtml(String(c.chatId))}" data-type="${c.chatType}" ${String(cronCfg.target) === String(c.chatId) ? 'selected' : ''}>${window.YHRender.escapeHtml(c.name || c.chatId)} (${typeName(c.chatType)})</option>`).join('')}
-          </select>
+          <div class="yh-cron-targets" style="flex:1">
+            <div class="yh-cron-targets-header">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;font-weight:600">
+                <input type="checkbox" id="st-cron-all" ${cronAllChecked ? 'checked' : ''} />
+                全部会话
+              </label>
+            </div>
+            <div class="yh-cron-targets-list">
+              ${(S.conversations || []).map(c => `
+                <label class="yh-cron-target-item">
+                  <input type="checkbox" class="st-cron-tgt" data-id="${window.YHRender.escapeHtml(String(c.chatId))}" data-type="${c.chatType}" data-name="${window.YHRender.escapeHtml(c.name || c.chatId)}" ${cronTargetSet.has(String(c.chatId)) ? 'checked' : ''} />
+                  <span class="yh-cron-target-name">${window.YHRender.escapeHtml(c.name || c.chatId)}</span>
+                  <span class="yh-cron-target-type">${typeName(c.chatType)}</span>
+                </label>
+              `).join('')}
+              ${(S.conversations || []).length === 0 ? '<div class="yh-contact-sub" style="padding:12px;text-align:center">暂无会话</div>' : ''}
+            </div>
+          </div>
         </div>
-        <div class="yh-settings-hint">选择发送目标：可发往全部会话或指定会话。</div>
+        <div class="yh-settings-hint">选择发送目标：勾选"全部会话"或手动多选指定会话。</div>
         <div class="yh-settings-row">
           <mdui-text-field id="st-cron-content" class="yh-full" variant="outlined" label="发送内容" rows="3"
             value="${window.YHRender.escapeHtml(cronCfg.content || '')}" placeholder="输入要定时发送的文本消息"></mdui-text-field>
@@ -2170,16 +2188,36 @@
       saveCronConfig(cfg);
       snack('定时发送内容已保存');
     });
-    // 目标选择
-    const targetSel = sp.querySelector('#st-cron-target');
-    targetSel.addEventListener('change', () => {
+    // 目标选择：全部会话开关
+    const allCheck = sp.querySelector('#st-cron-all');
+    const tgtChecks = sp.querySelectorAll('.st-cron-tgt');
+    function saveCronTargets() {
       const cfg = loadCronConfig();
-      cfg.target = targetSel.value;
-      const selOpt = targetSel.options[targetSel.selectedIndex];
-      cfg.targetName = selOpt ? selOpt.textContent : '';
-      cfg.targetType = selOpt ? Number(selOpt.dataset.type || 1) : 1;
+      if (allCheck.checked) {
+        cfg.targets = ['all'];
+      } else {
+        const ids = [];
+        tgtChecks.forEach(cb => { if (cb.checked) ids.push(cb.dataset.id); });
+        cfg.targets = ids.length ? ids : ['all']; // 空了就当全部
+      }
+      // 移除旧字段
+      delete cfg.target; delete cfg.targetName; delete cfg.targetType;
       saveCronConfig(cfg);
+    }
+    allCheck.addEventListener('change', () => {
+      // 勾选全部时，取消所有子项勾选
+      if (allCheck.checked) {
+        tgtChecks.forEach(cb => { cb.checked = false; });
+      }
+      saveCronTargets();
       snack('发送目标已保存');
+    });
+    tgtChecks.forEach(cb => {
+      cb.addEventListener('change', () => {
+        // 手动勾选子项时，自动取消"全部会话"
+        if (cb.checked && allCheck.checked) allCheck.checked = false;
+        saveCronTargets();
+      });
     });
   }
 
@@ -2265,15 +2303,23 @@
 
   async function executeCronSend(cfg) {
     if (!cfg.content) return;
+    // 兼容旧格式：cfg.target 单目标 → 转数组
+    let targetIds = cfg.targets || (cfg.target ? [cfg.target] : []);
+    if (!Array.isArray(targetIds)) targetIds = [];
     const targets = [];
-    if (cfg.target === 'all' || !cfg.target) {
-      (S.conversations || []).forEach(c => {
+    const allConvs = S.conversations || [];
+    // 如果包含 "all" 或为空 → 全部会话
+    if (targetIds.includes('all') || targetIds.length === 0) {
+      allConvs.forEach(c => {
         targets.push({ chatId: c.chatId, chatType: c.chatType, name: c.name });
       });
     } else {
-      const conv = (S.conversations || []).find(c => String(c.chatId) === String(cfg.target));
-      if (conv) targets.push({ chatId: conv.chatId, chatType: conv.chatType, name: conv.name });
-      else targets.push({ chatId: cfg.target, chatType: cfg.targetType || 1, name: cfg.targetName || '' });
+      const idSet = new Set(targetIds.map(String));
+      allConvs.forEach(c => {
+        if (idSet.has(String(c.chatId))) {
+          targets.push({ chatId: c.chatId, chatType: c.chatType, name: c.name });
+        }
+      });
     }
     let ok = 0, fail = 0;
     for (const t of targets) {
