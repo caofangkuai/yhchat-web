@@ -1624,6 +1624,11 @@
       // 解析 yunhu:// url_scheme（ad 类型跳过）
       text = window.YHRender.parseYunhuScheme(text);
     }
+    // 文章中所有 <img> src 走代理+缓存
+    text = text.replace(/<img([^>]*?)src="([^"]*)"/g, (match, attrs, url) => {
+      const proxied = window.YH && window.YH.getMediaSrc ? window.YH.getMediaSrc(url) : (window.YHApi.mediaUrl ? window.YHApi.mediaUrl(url) : url);
+      return `<img${attrs}src="${window.YHRender.escapeHtml(proxied)}"`;
+    });
     return text;
   }
 
