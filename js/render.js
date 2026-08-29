@@ -43,8 +43,11 @@
     return (n / 1024 / 1024).toFixed(1) + ' MB';
   }
 
-  // 媒体地址经反向代理转发（规避 jwznb CDN Referer 校验）；库未就绪时回退原地址
+  // 媒体地址经反向代理转发（规避 jwznb CDN Referer 校验）+ 缓存；库未就绪时回退原地址
   function media(url) {
+    if (!url) return url;
+    // 优先使用缓存（blob/data URL），无缓存则返回代理 URL 并异步缓存
+    if (window.YH && window.YH.getMediaSrc) return window.YH.getMediaSrc(url);
     return (window.YHApi && window.YHApi.mediaUrl) ? window.YHApi.mediaUrl(url) : url;
   }
   function failedImage() {
@@ -216,25 +219,49 @@
     return el;
   }
 
-  // 解析 yunhu:// url_scheme（ad 类型跳过），返回包含可点击 <span> 的 HTML
-  function parseYunhuScheme(html) {
-    return html.replace(/yunhu:\/\/(chat-add|post-detail|alley-detail)(\?[^<\s]*)?/g, (match, scheme, query) => {
-      const params = new URLSearchParams(query || '');
-      const id = params.get('id') || '';
-      let label = '', dataType = '';
-      if (scheme === 'chat-add') {
-        const type = params.get('type') || 'user';
-        dataType = type;
+  // 生成 yunhu:// 链接的 span HTML
+  function _yunhuSpan(scheme, query, match, customLabel) {
+    const params = new URLSearchParams(query || '');
+    const id = params.get('id') || '';
+    let label = customLabel || '', dataType = '';
+    if (scheme === 'chat-add') {
+      const type = params.get('type') || 'user';
+      dataType = type;
+      if (!customLabel) {
         const typeLabel = type === 'group' ? '群聊' : (type === 'bot' ? '机器人' : '用户');
         label = '添加' + typeLabel + (id ? '#' + id : '');
-      } else if (scheme === 'post-detail') {
-        label = '查看文章' + (id ? '#' + id : '');
-      } else if (scheme === 'alley-detail') {
-        label = '查看分区' + (id ? '#' + id : '');
       }
-      return `<span class="yh-yunhu-link" data-scheme="${scheme}" data-id="${id}" data-type="${dataType}" data-raw="${match}">${escapeHtml(label)}</span>`;
+    } else if (scheme === 'post-detail') {
+      if (!customLabel) label = '查看文章' + (id ? '#' + id : '');
+    } else if (scheme === 'alley-detail') {
+      if (!customLabel) label = '查看分区' + (id ? '#' + id : '');
+    }
+    return `<span class="yh-yunhu-link" data-scheme="${scheme}" data-id="${id}" data-type="${dataType}" data-raw="${match}">${escapeHtml(label)}</span>`;
+  }
+
+  // 解析 yunhu:// url_scheme（ad 类型跳过），返回包含可点击 <span> 的 HTML
+  // 用于已转义的 HTML 文本（纯文本消息、评论）
+  function parseYunhuScheme(html) {
+    return html.replace(/yunhu:\/\/(chat-add|post-detail|alley-detail)(\?[^<\s]*)?/g, (match, scheme, query) => {
+      return _yunhuSpan(scheme, query, match, '');
     });
   }
 
-  window.YHRender = { escapeHtml, sanitizeHtml, formatTime, fileSize, renderContent, renderBubble, renderSystem, failedImage, parseYunhuScheme };
+  // 解析 yunhu:// url_scheme（Markdown 专用），在 marked.js 之前预处理原始 Markdown 文本
+  // 处理两种形式：[text](yunhu://...) 和 裸 yunhu://...
+  function parseYunhuSchemeMarkdown(text) {
+    // 1. Markdown 链接 [text](yunhu://...)
+    text = text.replace(/\[([^\]]*)\]\(yunhu:\/\/(chat-add|post-detail|alley-detail)(\?[^)\s]*)?\)/g,
+      (match, linkText, scheme, query) => {
+        const raw = 'yunhu://' + scheme + (query || '');
+        return _yunhuSpan(scheme, query, raw, linkText);
+      });
+    // 2. 裸 yunhu://...
+    text = text.replace(/yunhu:\/\/(chat-add|post-detail|alley-detail)(\?[^\s<\]]*)?/g, (match, scheme, query) => {
+      return _yunhuSpan(scheme, query, match, '');
+    });
+    return text;
+  }
+
+  window.YHRender = { escapeHtml, sanitizeHtml, formatTime, fileSize, renderContent, renderBubble, renderSystem, failedImage, parseYunhuScheme, parseYunhuSchemeMarkdown };
 })();

@@ -1131,7 +1131,8 @@
 
   function openImage(url) {
     const ov = document.createElement('div'); ov.className = 'yh-img-preview';
-    ov.innerHTML = `<img src="${window.YHRender.escapeHtml(window.YHApi.mediaUrl(url))}"/>`;
+    const src = _getAvatarSrc(url) || window.YHApi.mediaUrl(url);
+    ov.innerHTML = `<img src="${window.YHRender.escapeHtml(src)}"/>`;
     ov.onclick = () => ov.remove();
     document.body.appendChild(ov);
   }
@@ -1613,10 +1614,16 @@
 
   function postBodyHtml(post) {
     let text = post.content || '';
-    if (post.contentType === 2) { try { text = window.marked ? window.marked.parse(text) : text; } catch (e) {} text = window.YHRender.sanitizeHtml(text); }
-    else text = window.YHRender.escapeHtml(text).replace(/\n/g, '<br/>');
-    // 解析 yunhu:// url_scheme（ad 类型跳过）
-    text = window.YHRender.parseYunhuScheme(text);
+    if (post.contentType === 2) {
+      // Markdown：先预处理 yunhu:// 链接（含 Markdown 链接语法），再 marked.js 解析
+      text = window.YHRender.parseYunhuSchemeMarkdown(text);
+      try { text = window.marked ? window.marked.parse(text) : text; } catch (e) {}
+      text = window.YHRender.sanitizeHtml(text);
+    } else {
+      text = window.YHRender.escapeHtml(text).replace(/\n/g, '<br/>');
+      // 解析 yunhu:// url_scheme（ad 类型跳过）
+      text = window.YHRender.parseYunhuScheme(text);
+    }
     return text;
   }
 
@@ -2720,7 +2727,7 @@
   if (localStorage.getItem('yh_eruda') === '1') loadEruda();
 
   // go
-  window.YH = { afterLogin, switchView, openChat, loadConversations, renderConversations, renderMessages, S, snack };
+  window.YH = { afterLogin, switchView, openChat, loadConversations, renderConversations, renderMessages, S, snack, getMediaSrc: _getAvatarSrc };
 
   // 显式加载 Material Icons 字体（mdui 2.x shadow DOM 里的图标实际 font-family 为 'Material Icons'）。
   // 用 FontFace API 比 @font-face 更可靠，能保证 shadow DOM 里的图标渲染为字形。
