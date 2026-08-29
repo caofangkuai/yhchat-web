@@ -504,8 +504,8 @@
     },
 
     async postDetail(postId) {
-      // 官方接口参数名为 id（不是 postId），否则 HTTP 400
-      const r = await this.rawJson('/v1/community/posts/post-detail', { id: postId });
+      // 官方接口参数名为 id（不是 postId），值为数字类型，否则 HTTP 400
+      const r = await this.rawJson('/v1/community/posts/post-detail', { id: Number(postId) });
       if (!r || r.code !== 1) throw new Error(r.msg || '获取文章详情失败');
       return r.data;
     },

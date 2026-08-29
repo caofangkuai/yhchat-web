@@ -2173,7 +2173,6 @@
         <mdui-list-item id="pf-edit-name" icon="edit">修改昵称</mdui-list-item>
         <mdui-list-item id="pf-edit-avatar" icon="account_box">修改头像</mdui-list-item>
         <mdui-list-item id="pf-edit-intro" icon="badge">修改个人简介</mdui-list-item>
-        <mdui-list-item id="pf-refresh" icon="refresh">刷新会话</mdui-list-item>
         <mdui-list-item id="pf-theme" icon="dark_mode">切换深色模式</mdui-list-item>
         <mdui-list-item id="pf-password" icon="lock">修改密码</mdui-list-item>
         <mdui-list-item id="pf-bind-email" icon="email">绑定邮箱</mdui-list-item>
@@ -2193,10 +2192,12 @@
       const intro = prompt('个人简介：');
       if (intro != null) { try { await window.YHApi.saveUserData({ introduction: intro, gender: 3 }); snack('已修改'); } catch (e) { snack(e.message); } }
     };
-    body.querySelector('#pf-refresh').onclick = () => loadConversations();
     body.querySelector('#pf-theme').onclick = () => {
-      const cur = document.documentElement.getAttribute('mdui-color-scheme');
-      document.documentElement.setAttribute('mdui-color-scheme', cur === 'dark' ? 'light' : 'dark');
+      const cur = localStorage.getItem('yh_theme') || 'light';
+      const next = cur === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('yh_theme', next);
+      if (window.mdui && window.mdui.setColorScheme) window.mdui.setColorScheme(next);
+      else document.documentElement.setAttribute('mdui-color-scheme', next);
     };
     body.querySelector('#pf-password').onclick = () => {
       const d2 = openDialog(`<div style="padding:18px">
@@ -2750,6 +2751,12 @@
   // 等待 mdui ESM 注册完成（模块脚本早于 DOMContentLoaded 执行并派发该事件），
   // 且 DOM 解析完毕后再启动。
   function start() {
+    // 恢复深色模式偏好
+    const savedTheme = localStorage.getItem('yh_theme');
+    if (savedTheme) {
+      if (window.mdui && window.mdui.setColorScheme) window.mdui.setColorScheme(savedTheme);
+      else document.documentElement.setAttribute('mdui-color-scheme', savedTheme);
+    }
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', init, { once: true });
     } else {
