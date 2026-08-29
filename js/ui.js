@@ -1897,19 +1897,24 @@
     if (!S._book || !S._book.length) {
       try { S._book = await window.YHApi.addressBook(); } catch (e) { snack('获取通讯录失败：' + e.message); }
     }
-    // 把通讯录展平成一个 [{id,name,chatType}] 的列表，优先用户组 / 机器人组。
+    // 把通讯录展平成一个 [{id,name,chatType}] 的列表，只包含用户(1)和机器人(3)，排除群聊(2)。
     const friends = [];
     (S._book || []).forEach(group => {
       const typeCode = (group.chat_type != null) ? Number(group.chat_type)
         : ((group.list_name || '').toString().includes('机器人') ? 3 : 1);
+      // 群聊分组直接跳过，邀请成员不允许邀请群聊
+      if (typeCode === 2) return;
       // addressBook 返回的结构：group.data 或 group.DataList 是联系人列表
       ((group.data || group.DataList || group.list || [])).forEach(it => {
         const id = it.chat_id || it.friendId || it.friend_id || it.id;
         if (!id) return;
+        const ct = Number(it.chat_type != null ? it.chat_type : typeCode) || 1;
+        // 跳过群聊 chatType=2
+        if (ct === 2) return;
         friends.push({
           id: String(id),
           name: it.remark || it.nickname || it.name || `#${id}`,
-          chatType: Number(it.chat_type != null ? it.chat_type : typeCode) || 1,
+          chatType: ct,
         });
       });
     });
