@@ -2197,7 +2197,8 @@
       const cur = localStorage.getItem('yh_theme') || 'light';
       const next = cur === 'dark' ? 'light' : 'dark';
       localStorage.setItem('yh_theme', next);
-      document.documentElement.setAttribute('mdui-color-scheme', next);
+      document.documentElement.classList.remove('mdui-theme-light', 'mdui-theme-dark');
+      document.documentElement.classList.add('mdui-theme-' + next);
     };
     body.querySelector('#pf-password').onclick = () => {
       const d2 = openDialog(`<div style="padding:18px">
@@ -2753,7 +2754,10 @@
   function start() {
     // 恢复深色模式偏好
     const savedTheme = localStorage.getItem('yh_theme');
-    if (savedTheme) document.documentElement.setAttribute('mdui-color-scheme', savedTheme);
+    if (savedTheme) {
+      document.documentElement.classList.remove('mdui-theme-light', 'mdui-theme-dark');
+      document.documentElement.classList.add('mdui-theme-' + savedTheme);
+    }
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', init, { once: true });
     } else {
