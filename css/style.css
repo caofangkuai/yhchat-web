@@ -334,6 +334,8 @@ mdui-navigation-bar-item, mdui-navigation-rail-item {
 .yh-msg.self .yh-time { text-align: left; }
 .yh-quote { font-size: 12px; color: rgb(var(--mdui-color-on-surface-variant)); border-left: 3px solid rgb(var(--mdui-color-outline)); padding: 2px 8px; margin-bottom: 6px; background: rgb(var(--mdui-color-surface-container)); border-radius: 6px; cursor: pointer; }
 .yh-at { color: rgb(var(--mdui-color-primary)); font-weight: 600; }
+.yh-yunhu-link { color: rgb(var(--mdui-color-primary)); cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
+.yh-yunhu-link:hover { opacity: 0.8; }
 .yh-system { align-self: center; font-size: 12px; color: rgb(var(--mdui-color-on-surface-variant)); background: rgb(var(--mdui-color-surface-container)); padding: 3px 10px; border-radius: 999px; }
 
 /* 联系人 / 社区 / 资料 */
@@ -504,6 +506,7 @@ mdui-dialog::part(panel) {
 .yh-disk-info { flex: 1; min-width: 0; }
 .yh-disk-name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .yh-disk-meta { font-size: 12px; color: rgb(var(--mdui-color-on-surface-variant)); margin-top: 2px; }
+.yh-disk-dl { font-size: 13px; color: rgb(var(--mdui-color-primary)); flex-shrink: 0; padding: 4px 8px; }
 
 /* 防撤回标记 */
 .yh-recalled-tag {

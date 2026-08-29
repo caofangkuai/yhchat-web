@@ -404,6 +404,27 @@
     // 手机端底部导航
     $('#bottom-nav').addEventListener('change', e => go(e.target.value));
   }
+
+  // ============ yunhu:// URL Scheme 解析 ============
+  function openYunhuScheme(scheme, id, type) {
+    if (!id) { snack('链接缺少 ID 参数'); return; }
+    if (scheme === 'chat-add') {
+      // type: user→1, group→2, bot→3
+      const typeCode = type === 'group' ? 2 : (type === 'bot' ? 3 : 1);
+      showDetail(typeCode, id, '');
+    } else if (scheme === 'post-detail') {
+      // 跳转到社区文章详情
+      switchView('community');
+      openPost(id);
+    } else if (scheme === 'alley-detail') {
+      // 跳转到社区分区文章列表
+      switchView('community');
+      openBaDetail(id);
+    } else {
+      snack('暂不支持此链接类型：' + scheme);
+    }
+  }
+
   function switchView(v) {
     // 离开消息页时停止后台刷新
     if (v !== 'messages') stopMsgRefresh();
@@ -743,6 +764,10 @@
     });
     // 长按 & 右键 消息气泡：弹出 action sheet
     $$('.yh-msg', box).forEach(el => bindMsgPress(el));
+    // yunhu:// url_scheme 链接点击
+    $$('.yh-yunhu-link', box).forEach(link => {
+      link.onclick = () => openYunhuScheme(link.dataset.scheme, link.dataset.id, link.dataset.type);
+    });
   }
 
   // 可编辑消息的 content_type 白名单：TEXT / MARKDOWN / HTML / FORM（文本类）
@@ -1991,20 +2016,27 @@
             const icon = isFolder ? '📁' : '📄';
             const sizeStr = isFolder ? '' : window.YHRender.fileSize(f.fileSize);
             const time = f.uploadTime ? window.YHRender.formatTime(f.uploadTime * 1000) : '';
-            return `<div class="yh-disk-item" data-id="${f.id}" data-type="${f.objectType}" data-name="${window.YHRender.escapeHtml(f.name)}">
+            // 文件下载 URL：七牛云 key → CDN 地址（经媒体代理）
+            const fileUrl = f.qiniuKey ? window.YHApi.mediaUrl('https://chat-img.jwznb.com/' + f.qiniuKey) : '';
+            return `<div class="yh-disk-item" data-id="${f.id}" data-type="${f.objectType}" data-name="${window.YHRender.escapeHtml(f.name)}" data-url="${window.YHRender.escapeHtml(fileUrl)}">
               <span class="yh-disk-icon">${icon}</span>
               <div class="yh-disk-info">
                 <div class="yh-disk-name">${window.YHRender.escapeHtml(f.name || '')}</div>
                 <div class="yh-disk-meta">${sizeStr ? sizeStr + ' · ' : ''}${window.YHRender.escapeHtml(f.uploadByName || '')}${time ? ' · ' + time : ''}</div>
               </div>
+              ${!isFolder && fileUrl ? '<span class="yh-disk-dl">下载</span>' : ''}
             </div>`;
           }).join('');
           listEl.querySelectorAll('.yh-disk-item').forEach(el => {
             el.onclick = () => {
               if (el.dataset.type === '1') {
+                // 文件夹：进入子目录
                 currentFolderId = parseInt(el.dataset.id);
                 folderStack.push({ id: currentFolderId, name: el.dataset.name });
                 loadFileList();
+              } else if (el.dataset.url) {
+                // 文件：打开下载链接
+                window.open(el.dataset.url, '_blank', 'noopener');
               }
             };
           });
