@@ -133,6 +133,20 @@
     el.dataset.chatType = String(msg.chat_type || '');
     el.dataset.contentType = String(msg.content_type || 1);
     el.dataset.senderChatId = msg.sender ? (msg.sender.chat_id || '') : '';
+    // 防撤回：如果该消息在缓存中且已被标记撤回，用原始内容渲染并加标记
+    let renderMsg = msg;
+    let isRecalled = false;
+    if (window.YH && window.YH.S && window.YH.S._antiRecallCache) {
+      const cached = window.YH.S._antiRecallCache.get(String(msg.msg_id));
+      if (cached && cached.recalled) {
+        isRecalled = true;
+        // 用原始内容渲染，但保留 msg_id 等元数据
+        renderMsg = Object.assign({}, msg, {
+          content: cached.content,
+          content_type: cached.content_type
+        });
+      }
+    }
     // 预览文本（用于复制文本 / 引用预览 / 编辑态回填文本）
     const c = msg.content || {};
     let previewText = c.text || '';
@@ -173,8 +187,16 @@
     }
     const inner = document.createElement('div');
     inner.className = 'yh-inner';
-    inner.innerHTML = renderContent(msg, opts);
+    inner.innerHTML = renderContent(isRecalled ? renderMsg : msg, opts);
     bubble.appendChild(inner);
+
+    // 防撤回标记
+    if (isRecalled) {
+      const tag = document.createElement('div');
+      tag.className = 'yh-recalled-tag';
+      tag.textContent = '已撤回';
+      bubble.insertBefore(tag, bubble.firstChild);
+    }
 
     const time = document.createElement('div');
     time.className = 'yh-time';

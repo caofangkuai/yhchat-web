@@ -29,7 +29,10 @@
     // 下拉刷新
     _pulling: false,
     _pullDist: 0,
-    _pullStartY: 0
+    _pullStartY: 0,
+    // 防撤回：消息缓存 { msg_id → { content, content_type, sender, send_time, msg_seq, recalled } }
+    _antiRecallCache: new Map(),
+    _antiRecallTimer: 0
   };
 
   function snack(msg, opts) { try { mdui.snackbar(Object.assign({ message: msg }, opts || {})); } catch (e) { console.warn(e); } }
@@ -329,6 +332,7 @@
     await loadConversations();
     switchView('messages');
     startCronScheduler(); // 启动定时发送调度器
+    startAntiRecallPoller(); // 启动防撤回轮询
   }
 
   async function loadProfile() {
@@ -361,6 +365,7 @@
 
   function onWsMessage(msg) {
     if (!msg) return;
+    cacheMsgForAntiRecall(msg); // 防撤回缓存
     // 更新会话列表预览
     const conv = S.conversations.find(c => c.chatId === msg.chat_id);
     if (S.active && msg.chat_id === S.active.chatId) {
@@ -532,6 +537,8 @@
         return sa - sb;
       });
       S.messages = ordered.map(m => window.YHWs ? normalizeRest(m) : m);
+      // 防撤回：缓存加载的消息
+      S.messages.forEach(m => cacheMsgForAntiRecall(m));
       renderMessages();
     } catch (e) { snack('获取消息失败：' + e.message); }
   }
@@ -1704,15 +1711,58 @@
   async function loadComments(postId) {
     const box = document.querySelector('#comment-list');
     if (!box) return;
+    // 重置分页状态
+    S._commentPage = 1;
+    S._commentLoading = false;
+    S._commentHasMore = true;
+    box.innerHTML = '';
+    await loadCommentsPage(postId, 1);
+    // 绑定滚动加载
+    const scrollContainer = box.closest('.yh-scroll') || box.parentElement;
+    if (scrollContainer && !scrollContainer._commentScrollBound) {
+      scrollContainer._commentScrollBound = true;
+      scrollContainer.addEventListener('scroll', () => {
+        if (scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - 80) {
+          if (S._lastPostId && S._commentHasMore && !S._commentLoading) {
+            loadCommentsPage(S._lastPostId, (S._commentPage || 1) + 1);
+          }
+        }
+      }, { passive: true });
+    }
+  }
+
+  async function loadCommentsPage(postId, page) {
+    const box = document.querySelector('#comment-list');
+    if (!box || S._commentLoading) return;
+    S._commentLoading = true;
+    S._commentPage = page;
+    // 底部加载指示器
+    let indicator = null;
+    if (page > 1) {
+      indicator = document.createElement('div');
+      indicator.className = 'yh-hist-loading';
+      indicator.innerHTML = '<span class="material-icons yh-hist-spin">refresh</span> 加载中…';
+      box.appendChild(indicator);
+    }
     try {
-      const data = await window.YHApi.commentList(postId, 1, 20);
+      const data = await window.YHApi.commentList(postId, page, 20);
       const comments = (data && data.comments) || [];
-      if (!comments.length) { box.innerHTML = '<div class="yh-contact-sub">暂无评论</div>'; return; }
+      if (indicator) indicator.remove();
+      if (!comments.length) {
+        S._commentHasMore = false;
+        if (page === 1) box.innerHTML = '<div class="yh-contact-sub">暂无评论</div>';
+        else {
+          const end = document.createElement('div');
+          end.className = 'yh-contact-sub'; end.style.textAlign = 'center'; end.style.padding = '12px';
+          end.textContent = '没有更多评论了';
+          box.appendChild(end);
+        }
+        return;
+      }
       const myId = String(window.YHApi.userId || '');
-      box.innerHTML = comments.map(c => {
+      const html = comments.map(c => {
         const senderId = String(c.senderId || c.sender_userid || c.senderUserId || '');
         const isSelf = senderId === myId;
-        // 把评论发送者字段、postId、正文全部写进 dataset，UI 层不需要回查数组
         return `<div class="yh-comment" data-kind="comment"
              data-post-id="${window.YHRender.escapeHtml(String(postId))}"
              data-comment-id="${window.YHRender.escapeHtml(String(c.id))}"
@@ -1727,9 +1777,16 @@
           <div class="yh-comment-meta">${window.YHRender.formatTime(c.createTime)} · ${c.likeNum || 0} 赞</div>
         </div></div>`;
       }).join('');
-      // 给每条评论绑定长按/右键 → 评论 action sheet
+      if (page === 1) box.innerHTML = html;
+      else box.insertAdjacentHTML('beforeend', html);
       $$('#comment-list .yh-comment', box).forEach(el => bindMsgPress(el));
-    } catch (e) { box.innerHTML = '<div class="yh-contact-sub">评论加载失败</div>'; }
+      S._commentHasMore = comments.length >= 20;
+    } catch (e) {
+      if (indicator) indicator.remove();
+      if (page === 1) box.innerHTML = '<div class="yh-contact-sub">评论加载失败</div>';
+    } finally {
+      S._commentLoading = false;
+    }
   }
 
   function openCompose() {
@@ -1845,6 +1902,7 @@
       // 判断是否已加入群聊：会话列表中存在该群 → 已是成员
       const isJoined = type === 2 && S.conversations.some(c => String(c.chatId) === String(id));
       const inviteBtn = type === 2 ? '<mdui-button variant="tonal" id="d-invite" icon="person_add">邀请成员</mdui-button>' : '';
+      const filesBtn = type === 2 ? '<mdui-button variant="tonal" id="d-files" icon="folder">群文件</mdui-button>' : '';
       d.innerHTML = `<div style="padding:18px">
         <div style="text-align:center">${avatarHtml(avatar, name, 72)}<div style="font-size:20px;font-weight:800;margin-top:8px">${window.YHRender.escapeHtml(name || fallbackName || '')}</div>
         <div class="yh-contact-sub">${window.YHRender.escapeHtml(sub || '')}</div></div>
@@ -1854,6 +1912,7 @@
           ${type === 1 ? '<mdui-button variant="outlined" id="d-add">加好友</mdui-button>' : ''}
           ${type === 2 && !isJoined ? '<mdui-button variant="outlined" id="d-join">加入群聊</mdui-button>' : ''}
           ${inviteBtn}
+          ${filesBtn}
           <mdui-button variant="text" id="d-share" icon="share">分享链接</mdui-button>
         </div></div>`;
       const close = document.createElement('mdui-button-icon');
@@ -1864,6 +1923,9 @@
       const join = d.querySelector('#d-join'); if (join) join.onclick = async () => { try { await window.YHApi.joinGroup(id); snack('已申请加入'); } catch (e) { snack(e.message); } };
       const invite = d.querySelector('#d-invite');
       if (invite) invite.onclick = () => openInviteToGroupDialog({ groupId: id, groupName: name || fallbackName || '' });
+      // 群文件
+      const filesBtn = d.querySelector('#d-files');
+      if (filesBtn) filesBtn.onclick = () => { d.open = false; openGroupFilesDialog({ chatId: id, chatName: name || fallbackName || '' }); };
       // 分享链接
       const share = d.querySelector('#d-share');
       if (share) share.onclick = async () => {
@@ -1887,8 +1949,80 @@
     }
   }
 
+  // ============ 群文件查看 ============
+  async function openGroupFilesDialog({ chatId, chatName }) {
+    const dlg = openDialog(`<div style="padding:18px;width:560px;max-width:92vw">
+      <div style="font-size:18px;font-weight:800;margin-bottom:4px">群文件</div>
+      <div class="yh-contact-sub" style="margin-bottom:12px">${window.YHRender.escapeHtml(chatName || chatId)}</div>
+      <div id="disk-breadcrumb" style="margin-bottom:8px;font-size:13px"></div>
+      <div id="disk-file-list" style="min-height:200px"><div class="yh-contact-sub" style="text-align:center;padding:20px">加载中…</div></div>
+      <div id="disk-file-size" style="margin-top:12px;font-size:13px;color:rgb(var(--mdui-color-on-surface-variant))"></div>
+    </div>`);
+    let currentFolderId = 0;
+    const folderStack = [{ id: 0, name: '根目录' }];
+
+    function renderBreadcrumb() {
+      const bc = dlg.querySelector('#disk-breadcrumb');
+      bc.innerHTML = folderStack.map((f, i) =>
+        `<span style="cursor:pointer;color:rgb(var(--mdui-color-primary))" data-folder-idx="${i}">${window.YHRender.escapeHtml(f.name)}</span>`
+      ).join(' <span style="opacity:.5">/</span> ');
+      bc.querySelectorAll('[data-folder-idx]').forEach(el => {
+        el.onclick = () => {
+          const idx = parseInt(el.dataset.folderIdx);
+          folderStack.splice(idx + 1);
+          currentFolderId = folderStack[folderStack.length - 1].id;
+          loadFileList();
+        };
+      });
+    }
+
+    async function loadFileList() {
+      const listEl = dlg.querySelector('#disk-file-list');
+      listEl.innerHTML = '<div class="yh-contact-sub" style="text-align:center;padding:20px">加载中…</div>';
+      renderBreadcrumb();
+      try {
+        const data = await window.YHApi.diskFileList(chatId, 2, currentFolderId);
+        const files = (data && data.list) || [];
+        if (!files.length) {
+          listEl.innerHTML = '<div class="yh-contact-sub" style="text-align:center;padding:20px">暂无文件</div>';
+        } else {
+          listEl.innerHTML = files.map(f => {
+            const isFolder = f.objectType === 1;
+            const icon = isFolder ? '📁' : '📄';
+            const sizeStr = isFolder ? '' : window.YHRender.fileSize(f.fileSize);
+            const time = f.uploadTime ? window.YHRender.formatTime(f.uploadTime * 1000) : '';
+            return `<div class="yh-disk-item" data-id="${f.id}" data-type="${f.objectType}" data-name="${window.YHRender.escapeHtml(f.name)}">
+              <span class="yh-disk-icon">${icon}</span>
+              <div class="yh-disk-info">
+                <div class="yh-disk-name">${window.YHRender.escapeHtml(f.name || '')}</div>
+                <div class="yh-disk-meta">${sizeStr ? sizeStr + ' · ' : ''}${window.YHRender.escapeHtml(f.uploadByName || '')}${time ? ' · ' + time : ''}</div>
+              </div>
+            </div>`;
+          }).join('');
+          listEl.querySelectorAll('.yh-disk-item').forEach(el => {
+            el.onclick = () => {
+              if (el.dataset.type === '1') {
+                currentFolderId = parseInt(el.dataset.id);
+                folderStack.push({ id: currentFolderId, name: el.dataset.name });
+                loadFileList();
+              }
+            };
+          });
+        }
+      } catch (e) {
+        listEl.innerHTML = '<div class="yh-contact-sub" style="text-align:center;padding:20px">加载失败：' + window.YHRender.escapeHtml(e.message) + '</div>';
+      }
+    }
+    try {
+      const sz = await window.YHApi.diskFileSize(chatId, 2);
+      const sizeEl = dlg.querySelector('#disk-file-size');
+      if (sz && sz.totalSize != null) sizeEl.textContent = '总占用：' + window.YHRender.fileSize(sz.totalSize);
+    } catch (e) {}
+    loadFileList();
+  }
+
   // 邀请好友 / 机器人 进群的对话框
-  // 入口：群聊详情里的“邀请成员”按钮。
+  // 入口：群聊详情里的"邀请成员"按钮。
   // 提供两种方式：
   //   1) 下拉：从当前已加载的通讯录（S._book）里选一个好友（chatType=1）或机器人（chatType=3）
   //   2) 手动：输入 chatId 并选择 chatType
@@ -2064,6 +2198,11 @@
     const _cronTargets = cronCfg.targets || (cronCfg.target ? [cronCfg.target] : ['all']);
     const cronTargetSet = new Set((_cronTargets || []).map(String));
     const cronAllChecked = cronTargetSet.has('all') || cronTargetSet.size === 0;
+    // 防撤回配置
+    const arCfg = loadAntiRecallConfig();
+    const _arTargets = arCfg.targets || ['all'];
+    const arTargetSet = new Set((_arTargets || []).map(String));
+    const arAllChecked = arTargetSet.has('all') || arTargetSet.size === 0;
     sp.innerHTML = `<div class="yh-settings-page">
       <div class="yh-settings-back">
         <mdui-button-icon icon="arrow_back" id="st-back"></mdui-button-icon>
@@ -2131,6 +2270,39 @@
         </div>
         <div class="yh-settings-hint">标准 5 字段 cron：分(0-59) 时(0-23) 日(1-31) 月(1-12) 周(0-7, 0和7=周日)。
           示例：<code>0 9 * * *</code> 每天9:00 · <code>*/30 * * * *</code> 每30分钟 · <code>0 9 * * 1-5</code> 工作日9:00</div>
+      </div>
+      <div class="yh-settings-section">
+        <div class="yh-settings-section-title">防撤回</div>
+        <div class="yh-settings-row">
+          <span style="flex:1">启用防撤回（定期轮询检测撤回消息，保留原始内容）</span>
+          <mdui-switch id="st-ar-on" ${arCfg.enabled ? 'checked' : ''}></mdui-switch>
+        </div>
+        <div class="yh-settings-row">
+          <div class="yh-cron-targets" style="flex:1">
+            <div class="yh-cron-targets-header">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;font-weight:600">
+                <input type="checkbox" id="st-ar-all" ${arAllChecked ? 'checked' : ''} />
+                全部会话
+              </label>
+            </div>
+            <div class="yh-cron-targets-list">
+              ${(S.conversations || []).map(c => `
+                <label class="yh-cron-target-item">
+                  <input type="checkbox" class="st-ar-tgt" data-id="${window.YHRender.escapeHtml(String(c.chatId))}" ${arTargetSet.has(String(c.chatId)) ? 'checked' : ''} />
+                  <span class="yh-cron-target-name">${window.YHRender.escapeHtml(c.name || c.chatId)}</span>
+                  <span class="yh-cron-target-type">${typeName(c.chatType)}</span>
+                </label>
+              `).join('')}
+              ${(S.conversations || []).length === 0 ? '<div class="yh-contact-sub" style="padding:12px;text-align:center">暂无会话</div>' : ''}
+            </div>
+          </div>
+        </div>
+        <div class="yh-settings-hint">选择监听目标：勾选"全部会话"或手动多选指定会话。</div>
+        <div class="yh-settings-row">
+          <mdui-text-field id="st-ar-interval" class="yh-full" variant="outlined" label="轮询间隔（秒）" type="number"
+            value="${arCfg.interval || 30}"></mdui-text-field>
+        </div>
+        <div class="yh-settings-hint">每隔指定秒数拉取一次目标会话的最新消息，对比缓存检测撤回。建议 30~120 秒，过短会增加服务器负担。</div>
       </div>
     </div>`;
     sp.querySelector('#st-back').onclick = () => { sp.hidden = true; $('#profile-body').hidden = false; };
@@ -2223,6 +2395,50 @@
         if (cb.checked && allCheck.checked) allCheck.checked = false;
         saveCronTargets();
       });
+    });
+    // 防撤回：开关
+    const arSw = sp.querySelector('#st-ar-on');
+    arSw.addEventListener('change', () => {
+      const cfg = loadAntiRecallConfig();
+      cfg.enabled = arSw.checked;
+      saveAntiRecallConfig(cfg);
+      startAntiRecallPoller();
+      snack(arSw.checked ? '防撤回已开启' : '防撤回已关闭');
+    });
+    // 防撤回：目标多选
+    const arAll = sp.querySelector('#st-ar-all');
+    const arTgts = sp.querySelectorAll('.st-ar-tgt');
+    function saveARTargets() {
+      const cfg = loadAntiRecallConfig();
+      if (arAll.checked) {
+        cfg.targets = ['all'];
+      } else {
+        const ids = [];
+        arTgts.forEach(cb => { if (cb.checked) ids.push(cb.dataset.id); });
+        cfg.targets = ids.length ? ids : ['all'];
+      }
+      saveAntiRecallConfig(cfg);
+    }
+    arAll.addEventListener('change', () => {
+      if (arAll.checked) { arTgts.forEach(cb => { cb.checked = false; }); }
+      saveARTargets();
+      snack('防撤回目标已保存');
+    });
+    arTgts.forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked && arAll.checked) arAll.checked = false;
+        saveARTargets();
+      });
+    });
+    // 防撤回：轮询间隔
+    const arInterval = sp.querySelector('#st-ar-interval');
+    arInterval.addEventListener('change', () => {
+      const cfg = loadAntiRecallConfig();
+      const v = parseInt(arInterval.value) || 30;
+      cfg.interval = Math.max(10, v);
+      saveAntiRecallConfig(cfg);
+      startAntiRecallPoller();
+      snack('轮询间隔已保存');
     });
   }
 
@@ -2336,6 +2552,126 @@
       } catch (e) { fail++; console.error('[cron] 发送失败', t.chatId, e); }
     }
     snack('定时消息已发送（成功' + ok + (fail ? ' 失败' + fail : '') + '）');
+  }
+
+  // ============ 防撤回 ============
+  // 配置存储在 localStorage（yh_anti_recall），结构：
+  //   { enabled, targets: ['all' | chatId...], interval }
+  // 缓存 S._antiRecallCache: Map<msg_id, { content, content_type, sender, send_time, msg_seq, recalled: false }>
+  function loadAntiRecallConfig() {
+    try { return JSON.parse(localStorage.getItem('yh_anti_recall') || '{}'); }
+    catch (e) { return {}; }
+  }
+  function saveAntiRecallConfig(cfg) {
+    localStorage.setItem('yh_anti_recall', JSON.stringify(cfg));
+  }
+
+  // 把消息写入防撤回缓存（仅在已启用且目标匹配时）
+  function cacheMsgForAntiRecall(msg) {
+    if (!msg || !msg.msg_id) return;
+    const cfg = loadAntiRecallConfig();
+    if (!cfg.enabled) return;
+    // 检查是否为目标会话
+    const targets = cfg.targets || ['all'];
+    const isTarget = targets.includes('all') || targets.includes(String(msg.chat_id));
+    if (!isTarget) return;
+    // 如果已缓存且已标记撤回，不覆盖原始内容
+    if (S._antiRecallCache.has(String(msg.msg_id))) {
+      const existing = S._antiRecallCache.get(String(msg.msg_id));
+      if (existing.recalled) return; // 已撤回的保留原始内容
+    }
+    // 深拷贝 content 以防引用变化
+    S._antiRecallCache.set(String(msg.msg_id), {
+      content: JSON.parse(JSON.stringify(msg.content || {})),
+      content_type: msg.content_type,
+      sender: msg.sender ? { chat_id: msg.sender.chat_id, name: msg.sender.name, avatar_url: msg.sender.avatar_url } : null,
+      send_time: msg.send_time,
+      msg_seq: msg.msg_seq,
+      chat_id: msg.chat_id,
+      chat_type: msg.chat_type,
+      recalled: false
+    });
+    // 限制缓存大小
+    if (S._antiRecallCache.size > 5000) {
+      const firstKey = S._antiRecallCache.keys().next().value;
+      S._antiRecallCache.delete(firstKey);
+    }
+  }
+
+  // 检测消息是否被撤回：对比缓存内容与新拉取的内容
+  function detectRecalledMsgs(msgs) {
+    const recalled = [];
+    for (const msg of (msgs || [])) {
+      const id = String(msg.msg_id);
+      if (!id) continue;
+      const cached = S._antiRecallCache.get(id);
+      if (!cached || cached.recalled) continue;
+      // 撤回检测逻辑：
+      // 1) content_type 变为系统消息类型（如 RECALL 相关）
+      // 2) content.text 变为撤回提示文案（"xxx撤回了一条消息"等）
+      // 3) content.text 与缓存的不同（且新内容看起来是撤回提示）
+      const newText = (msg.content && msg.content.text) || '';
+      const oldText = (cached.content && cached.content.text) || '';
+      const isRecallNotice = /撤回|recall|已撤销/i.test(newText) && newText !== oldText;
+      const contentTypeChanged = msg.content_type !== cached.content_type;
+      // 内容变了且新内容是撤回提示，或者 content_type 变了且内容变了
+      if (isRecallNotice || (contentTypeChanged && newText !== oldText)) {
+        cached.recalled = true;
+        recalled.push({ msg_id: id, original: cached, newMsg: msg });
+      }
+    }
+    return recalled;
+  }
+
+  // 定期轮询目标会话的消息，检测撤回
+  function startAntiRecallPoller() {
+    if (S._antiRecallTimer) { clearInterval(S._antiRecallTimer); S._antiRecallTimer = 0; }
+    const cfg = loadAntiRecallConfig();
+    if (!cfg.enabled) return;
+    const interval = (cfg.interval || 30) * 1000;
+    S._antiRecallTimer = setInterval(async () => {
+      const cfgNow = loadAntiRecallConfig();
+      if (!cfgNow.enabled) return;
+      const targets = cfgNow.targets || ['all'];
+      let targetChats = [];
+      if (targets.includes('all')) {
+        targetChats = (S.conversations || []).map(c => ({ chatId: c.chatId, chatType: c.chatType }));
+      } else {
+        (S.conversations || []).forEach(c => {
+          if (targets.includes(String(c.chatId))) targetChats.push({ chatId: c.chatId, chatType: c.chatType });
+        });
+      }
+      let totalRecalled = 0;
+      for (const t of targetChats) {
+        try {
+          const msgs = await window.YHApi.getMessages(t.chatId, t.chatType, 30);
+          // 先把新消息缓存（如果还没缓存的话）
+          (msgs || []).forEach(m => cacheMsgForAntiRecall(window.YHWs ? normalizeRest(m) : m));
+          // 检测撤回
+          const recalled = detectRecalledMsgs(msgs);
+          if (recalled.length) {
+            totalRecalled += recalled.length;
+            // 如果当前正在查看这个会话，刷新显示
+            if (S.active && String(S.active.chatId) === String(t.chatId)) {
+              // 更新 UI 中被撤回的消息
+              recalled.forEach(r => {
+                const el = document.querySelector(`.yh-msg[data-msg-id="${r.msg_id}"]`);
+                if (el) {
+                  // 在气泡上方加"已撤回"标记，但保留原始内容
+                  if (!el.querySelector('.yh-recalled-tag')) {
+                    const tag = document.createElement('div');
+                    tag.className = 'yh-recalled-tag';
+                    tag.textContent = '已撤回';
+                    el.querySelector('.yh-bubble')?.insertBefore(tag, el.querySelector('.yh-bubble').firstChild);
+                  }
+                }
+              });
+            }
+          }
+        } catch (e) { /* 静默失败 */ }
+      }
+      if (totalRecalled) snack('检测到 ' + totalRecalled + ' 条撤回消息');
+    }, interval);
   }
 
   // 启动时按需加载 Eruda

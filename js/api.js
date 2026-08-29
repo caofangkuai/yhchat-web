@@ -480,6 +480,21 @@
       return r.data;
     },
 
+    // ---------- Disk (JSON) ----------
+    // 获取群网盘文件列表：POST /v1/disk/file-list
+    // 请求体: { chatId, chatType, folderId, sort }
+    async diskFileList(chatId, chatType = 2, folderId = 0, sort = 'name_asc') {
+      const r = await this.rawJson('/v1/disk/file-list', { chatId: String(chatId), chatType: Number(chatType), folderId: Number(folderId), sort });
+      if (!r || r.code !== 1) throw new Error((r && r.msg) || '获取文件列表失败');
+      return r.data;
+    },
+    // 获取群网盘文件总大小：POST /v1/disk/file-size
+    async diskFileSize(chatId, chatType = 2) {
+      const r = await this.rawJson('/v1/disk/file-size', { chatId: String(chatId), chatType: Number(chatType) });
+      if (!r || r.code !== 1) throw new Error((r && r.msg) || '获取文件大小失败');
+      return r.data;
+    },
+
     // ---------- Community (JSON) ----------
     // typ: 1-文本 2-markdown（post-list 的 typ）
     async communityPosts(baId, page = 1, size = 20, typ = 1) {

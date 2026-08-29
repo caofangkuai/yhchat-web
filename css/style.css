@@ -493,6 +493,30 @@ mdui-dialog::part(panel) {
   border-radius: 4px;
 }
 
+/* 群文件列表 */
+.yh-disk-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; border-radius: 10px; cursor: pointer;
+  transition: background .15s;
+}
+.yh-disk-item:hover { background: rgb(var(--mdui-color-surface-container-high)); }
+.yh-disk-icon { font-size: 22px; flex-shrink: 0; }
+.yh-disk-info { flex: 1; min-width: 0; }
+.yh-disk-name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.yh-disk-meta { font-size: 12px; color: rgb(var(--mdui-color-on-surface-variant)); margin-top: 2px; }
+
+/* 防撤回标记 */
+.yh-recalled-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgb(var(--mdui-color-error));
+  background: rgb(var(--mdui-color-error-container));
+  padding: 2px 8px;
+  border-radius: 6px;
+  margin-bottom: 4px;
+}
+
 /* 图片预览 */
 .yh-img-preview { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: flex; align-items: center; justify-content: center; z-index: 9999; cursor: zoom-out; }
 .yh-img-preview img { max-width: 92vw; max-height: 92vh; }
