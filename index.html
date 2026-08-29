@@ -8,7 +8,7 @@
   <link rel="icon" href="data:," />
   <link rel="stylesheet" href="./vendor/mdui.css" />
   <link rel="stylesheet" href="./vendor/icons.css" />
-  <link rel="stylesheet" href="./css/style.css?v=12" />
+  <link rel="stylesheet" href="./css/style.css?v=13" />
   <!-- 预加载图标字体（mdui 组件默认 font-family 为 'Material Icons'）-->
   <link rel="preload" href="./vendor/material-icons.woff2" as="font" type="font/woff2" crossorigin>
 </head>
@@ -208,11 +208,11 @@
        - 新消息类型（conversation_list_send、request_list_send 等）不存在
        - protobuf.js keepCase 修复不生效 → 请求体字段名不匹配 → 编码 0 字节 → 抓包"无请求体"
        通过带 cache-bust query 强制重新拉取；后续改 proto 或 api 时 bump 后缀即可。 -->
-  <script src="./js/proto.js?v=11"></script>
-  <script src="./js/api.js?v=11"></script>
-  <script src="./js/ws.js?v=11"></script>
-  <script src="./js/render.js?v=11"></script>
-  <script src="./js/ui.js?v=11"></script>
+  <script src="./js/proto.js?v=12"></script>
+  <script src="./js/api.js?v=12"></script>
+  <script src="./js/ws.js?v=12"></script>
+  <script src="./js/render.js?v=12"></script>
+  <script src="./js/ui.js?v=12"></script>
 </body>
 
 </html>

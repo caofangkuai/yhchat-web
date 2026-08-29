@@ -455,6 +455,7 @@ mdui-dialog::part(panel) {
 .yh-settings-row mdui-text-field { flex: 1; }
 .yh-settings-row mdui-switch { flex-shrink: 0; }
 .yh-settings-hint { font-size: 12px; color: rgb(var(--mdui-color-on-surface-variant)); margin-top: 4px; }
+.yh-settings-hint code { background: rgb(var(--mdui-color-surface-container-high)); padding: 1px 4px; border-radius: 4px; font-size: 11px; }
 
 /* 图片预览 */
 .yh-img-preview { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: flex; align-items: center; justify-content: center; z-index: 9999; cursor: zoom-out; }

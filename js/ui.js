@@ -328,6 +328,7 @@
     connectWS();
     await loadConversations();
     switchView('messages');
+    startCronScheduler(); // 启动定时发送调度器
   }
 
   async function loadProfile() {
@@ -1869,7 +1870,8 @@
         try {
           share.loading = true;
           const data = await window.YHApi.createShare({ chatId: id, chatType: type, chatName: name || fallbackName || '' });
-          const url = data && data.shareUrl ? data.shareUrl : '';
+          // 分享链接格式: https://yhfx.jwznb.com/share?key={key}&ts={ts}
+          const url = data && data.key ? `https://yhfx.jwznb.com/share?key=${data.key}&ts=${data.ts || ''}` : (data && data.shareUrl ? data.shareUrl : '');
           if (url) {
             try { await navigator.clipboard.writeText(url); snack('分享链接已复制：' + url); }
             catch (_) { snack('分享链接：' + url); }
@@ -1900,12 +1902,13 @@
     (S._book || []).forEach(group => {
       const typeCode = (group.chat_type != null) ? Number(group.chat_type)
         : ((group.list_name || '').toString().includes('机器人') ? 3 : 1);
-      ((group.list) || []).forEach(it => {
-        const id = it.friendId || it.friend_id || it.id;
+      // addressBook 返回的结构：group.data 或 group.DataList 是联系人列表
+      ((group.data || group.DataList || group.list || [])).forEach(it => {
+        const id = it.chat_id || it.friendId || it.friend_id || it.id;
         if (!id) return;
         friends.push({
           id: String(id),
-          name: it.nickname || it.name || `#${id}`,
+          name: it.remark || it.nickname || it.name || `#${id}`,
           chatType: Number(it.chat_type != null ? it.chat_type : typeCode) || 1,
         });
       });
@@ -1920,7 +1923,7 @@
       <div class="yh-contact-sub" style="margin-bottom:14px">目标群：${window.YHRender.escapeHtml(groupName || groupId)}（${window.YHRender.escapeHtml(groupId)}）<br/>按接口要求，chatType 只能是 1（用户）或 3（机器人），邀请前必须已是好友。</div>
       <mdui-select id="inv-pick" label="从通讯录选择" class="yh-full" style="margin-bottom:10px">
         <mdui-menu-item value="" disabled${friends.length ? ' selected' : ''}>—— 选择一位好友/机器人 ——</mdui-menu-item>
-        ${groupOptions || '<mdui-menu-item value="">（还未加载通讯录，去联系人页刷新）</mdui-menu-item>'}
+        ${groupOptions || '<mdui-menu-item value="">（通讯录为空，可手动输入下方 chatId）</mdui-menu-item>'}
       </mdui-select>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <mdui-text-field id="inv-chat-id" label="或手动输入 chatId" class="yh-grow"></mdui-text-field>
@@ -2051,6 +2054,7 @@
       : (localStorage.getItem('yh_media_proxy') || '');
     const erudaOn = localStorage.getItem('yh_eruda') === '1';
     const curSig = localStorage.getItem('yh_msg_sig') || '';
+    const cronCfg = loadCronConfig();
     sp.innerHTML = `<div class="yh-settings-page">
       <div class="yh-settings-back">
         <mdui-button-icon icon="arrow_back" id="st-back"></mdui-button-icon>
@@ -2080,6 +2084,30 @@
           <mdui-switch id="st-eruda" ${erudaOn ? 'checked' : ''}></mdui-switch>
         </div>
         <div class="yh-settings-hint">Eruda 提供移动端网页调试面板（Console / Network / Elements 等）。</div>
+      </div>
+      <div class="yh-settings-section">
+        <div class="yh-settings-section-title">定时发送消息</div>
+        <div class="yh-settings-row">
+          <span style="flex:1">启用定时发送（页面需保持打开）</span>
+          <mdui-switch id="st-cron-on" ${cronCfg.enabled ? 'checked' : ''}></mdui-switch>
+        </div>
+        <div class="yh-settings-row">
+          <select id="st-cron-target" class="yh-attach-select" style="flex:1">
+            <option value="all" ${cronCfg.target === 'all' || !cronCfg.target ? 'selected' : ''}>所有人（全部会话）</option>
+            ${(S.conversations || []).map(c => `<option value="${window.YHRender.escapeHtml(String(c.chatId))}" data-type="${c.chatType}" ${String(cronCfg.target) === String(c.chatId) ? 'selected' : ''}>${window.YHRender.escapeHtml(c.name || c.chatId)} (${typeName(c.chatType)})</option>`).join('')}
+          </select>
+        </div>
+        <div class="yh-settings-hint">选择发送目标：可发往全部会话或指定会话。</div>
+        <div class="yh-settings-row">
+          <mdui-text-field id="st-cron-content" class="yh-full" variant="outlined" label="发送内容" rows="3"
+            value="${window.YHRender.escapeHtml(cronCfg.content || '')}" placeholder="输入要定时发送的文本消息"></mdui-text-field>
+        </div>
+        <div class="yh-settings-row">
+          <mdui-text-field id="st-cron-expr" class="yh-full" variant="outlined" label="Cron 表达式（分 时 日 月 周）"
+            value="${window.YHRender.escapeHtml(cronCfg.cron || '0 9 * * *')}" placeholder="0 9 * * *"></mdui-text-field>
+        </div>
+        <div class="yh-settings-hint">标准 5 字段 cron：分(0-59) 时(0-23) 日(1-31) 月(1-12) 周(0-7, 0和7=周日)。
+          示例：<code>0 9 * * *</code> 每天9:00 · <code>*/30 * * * *</code> 每30分钟 · <code>0 9 * * 1-5</code> 工作日9:00</div>
       </div>
     </div>`;
     sp.querySelector('#st-back').onclick = () => { sp.hidden = true; $('#profile-body').hidden = false; };
@@ -2113,6 +2141,46 @@
       else { try { if (window.eruda) window.eruda.destroy(); } catch (e) {} }
       snack(on ? 'Eruda 已启用' : 'Eruda 已关闭');
     });
+    // 定时发送消息开关
+    const cronSw = sp.querySelector('#st-cron-on');
+    cronSw.addEventListener('change', () => {
+      const cfg = loadCronConfig();
+      cfg.enabled = cronSw.checked;
+      saveCronConfig(cfg);
+      if (cfg.enabled) { startCronScheduler(); snack('定时发送已开启'); }
+      else { startCronScheduler(); snack('定时发送已关闭'); }
+    });
+    // 保存 cron 表达式
+    const cronInput = sp.querySelector('#st-cron-expr');
+    cronInput.addEventListener('change', () => {
+      const cfg = loadCronConfig();
+      const v = cronInput.value.trim();
+      // 简单校验：5 字段
+      if (v && v.split(/\s+/).length !== 5) { snack('Cron 表达式格式错误，需要 5 个字段：分 时 日 月 周'); return; }
+      cfg.cron = v || '0 9 * * *';
+      saveCronConfig(cfg);
+      startCronScheduler();
+      snack('Cron 表达式已保存');
+    });
+    // 保存发送内容
+    const contentInput = sp.querySelector('#st-cron-content');
+    contentInput.addEventListener('change', () => {
+      const cfg = loadCronConfig();
+      cfg.content = contentInput.value;
+      saveCronConfig(cfg);
+      snack('定时发送内容已保存');
+    });
+    // 目标选择
+    const targetSel = sp.querySelector('#st-cron-target');
+    targetSel.addEventListener('change', () => {
+      const cfg = loadCronConfig();
+      cfg.target = targetSel.value;
+      const selOpt = targetSel.options[targetSel.selectedIndex];
+      cfg.targetName = selOpt ? selOpt.textContent : '';
+      cfg.targetType = selOpt ? Number(selOpt.dataset.type || 1) : 1;
+      saveCronConfig(cfg);
+      snack('发送目标已保存');
+    });
   }
 
   function loadEruda() {
@@ -2122,6 +2190,101 @@
     s.onload = () => { try { window.eruda.init(); } catch (e) { console.warn(e); } };
     s.onerror = () => snack('Eruda 加载失败');
     document.head.appendChild(s);
+  }
+
+  // ============ 定时发送消息（Cron） ============
+  // 配置存储在 localStorage（yh_cron_send），结构：
+  //   { enabled, target, targetName, content, cron }
+  //   target = "all" → 向所有会话发送；否则为具体 chatId
+  //   cron 为标准 5 字段："分 时 日 月 周"
+  let _cronTimer = null;
+  let _cronLastFired = ''; // 防止同一分钟内重复触发
+
+  function loadCronConfig() {
+    try { return JSON.parse(localStorage.getItem('yh_cron_send') || '{}'); }
+    catch (e) { return {}; }
+  }
+  function saveCronConfig(cfg) {
+    localStorage.setItem('yh_cron_send', JSON.stringify(cfg));
+  }
+
+  // 简易 cron 匹配器：支持 * / 数字 / 逗号 / 范围(-) / 步长(/)
+  function cronMatch(expr, date) {
+    const parts = expr.trim().split(/\s+/);
+    if (parts.length !== 5) return false;
+    function matchField(field, value) {
+      if (field === '*') return true;
+      for (const part of field.split(',')) {
+        if (part.includes('/')) {
+          const [range, stepStr] = part.split('/');
+          const step = parseInt(stepStr);
+          if (range === '*') {
+            if (value % step === 0) return true;
+          } else if (range.includes('-')) {
+            const [lo, hi] = range.split('-').map(n => parseInt(n));
+            if (value >= lo && value <= hi && (value - lo) % step === 0) return true;
+          } else {
+            const base = parseInt(range);
+            if (value >= base && (value - base) % step === 0) return true;
+          }
+        } else if (part.includes('-')) {
+          const [lo, hi] = part.split('-').map(n => parseInt(n));
+          if (value >= lo && value <= hi) return true;
+        } else {
+          if (parseInt(part) === value) return true;
+        }
+      }
+      return false;
+    }
+    // dow: JS getDay() 0=Sunday；cron 里 0 和 7 都表示周日
+    const dow = date.getDay();
+    return matchField(parts[0], date.getMinutes()) &&
+           matchField(parts[1], date.getHours()) &&
+           matchField(parts[2], date.getDate()) &&
+           matchField(parts[3], date.getMonth() + 1) &&
+           matchField(parts[4], dow === 0 ? 7 : dow);
+  }
+
+  function startCronScheduler() {
+    if (_cronTimer) { clearInterval(_cronTimer); _cronTimer = null; }
+    const cfg = loadCronConfig();
+    if (!cfg.enabled) return;
+    _cronTimer = setInterval(() => {
+      const cfgNow = loadCronConfig();
+      if (!cfgNow.enabled || !cfgNow.cron || !cfgNow.content) return;
+      const now = new Date();
+      // 防止同一分钟重复触发
+      const nowKey = now.getFullYear() + '-' + (now.getMonth()+1) + '-' + now.getDate() +
+                     ' ' + now.getHours() + ':' + now.getMinutes();
+      if (_cronLastFired === nowKey) return;
+      if (!cronMatch(cfgNow.cron, now)) return;
+      _cronLastFired = nowKey;
+      executeCronSend(cfgNow);
+    }, 30000); // 每 30 秒检查一次
+  }
+
+  async function executeCronSend(cfg) {
+    if (!cfg.content) return;
+    const targets = [];
+    if (cfg.target === 'all' || !cfg.target) {
+      (S.conversations || []).forEach(c => {
+        targets.push({ chatId: c.chatId, chatType: c.chatType, name: c.name });
+      });
+    } else {
+      const conv = (S.conversations || []).find(c => String(c.chatId) === String(cfg.target));
+      if (conv) targets.push({ chatId: conv.chatId, chatType: conv.chatType, name: conv.name });
+      else targets.push({ chatId: cfg.target, chatType: cfg.targetType || 1, name: cfg.targetName || '' });
+    }
+    let ok = 0, fail = 0;
+    for (const t of targets) {
+      try {
+        await window.YHApi.sendMessage({
+          chatId: t.chatId, chatType: t.chatType, contentType: 1, text: cfg.content
+        });
+        ok++;
+      } catch (e) { fail++; console.error('[cron] 发送失败', t.chatId, e); }
+    }
+    snack('定时消息已发送（成功' + ok + (fail ? ' 失败' + fail : '') + '）');
   }
 
   // 启动时按需加载 Eruda
