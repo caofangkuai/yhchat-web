@@ -249,18 +249,27 @@
 
   // 解析 yunhu:// url_scheme（Markdown 专用），在 marked.js 之前预处理原始 Markdown 文本
   // 处理两种形式：[text](yunhu://...) 和 裸 yunhu://...
+  // 使用单次 replace 确保替换后的 span 内 data-raw 不会被二次匹配
   function parseYunhuSchemeMarkdown(text) {
-    // 1. Markdown 链接 [text](yunhu://...)
-    text = text.replace(/\[([^\]]*)\]\(yunhu:\/\/(chat-add|post-detail|alley-detail)(\?[^)\s]*)?\)/g,
-      (match, linkText, scheme, query) => {
-        const raw = 'yunhu://' + scheme + (query || '');
-        return _yunhuSpan(scheme, query, raw, linkText);
-      });
-    // 2. 裸 yunhu://...
-    text = text.replace(/yunhu:\/\/(chat-add|post-detail|alley-detail)(\?[^\s<\]]*)?/g, (match, scheme, query) => {
-      return _yunhuSpan(scheme, query, match, '');
-    });
-    return text;
+    return text.replace(
+      // Pattern 1: [text](yunhu://...) Markdown 链接（优先匹配）
+      // Pattern 2: 裸 yunhu://...
+      /\[([^\]]*)\]\(yunhu:\/\/(chat-add|post-detail|alley-detail)(\?[^)\s]*)?\)|yunhu:\/\/(chat-add|post-detail|alley-detail)(\?[^\s<\]"']*)?/g,
+      (match, linkText, scheme1, query1, scheme2, query2) => {
+        if (linkText !== undefined) {
+          // Markdown 链接 [text](yunhu://...)
+          const scheme = scheme1;
+          const query = query1 || '';
+          const raw = 'yunhu://' + scheme + query;
+          return _yunhuSpan(scheme, query, raw, linkText);
+        } else {
+          // 裸 yunhu://
+          const scheme = scheme2;
+          const query = query2 || '';
+          return _yunhuSpan(scheme, query, match, '');
+        }
+      }
+    );
   }
 
   window.YHRender = { escapeHtml, sanitizeHtml, formatTime, fileSize, renderContent, renderBubble, renderSystem, failedImage, parseYunhuScheme, parseYunhuSchemeMarkdown };
