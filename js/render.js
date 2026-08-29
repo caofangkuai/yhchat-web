@@ -115,23 +115,7 @@
         // highlight @mentions
         text = text.replace(/@([^\s@<]{1,30})/g, '<span class="yh-at">@$1</span>');
         // 解析 yunhu:// url_scheme（ad 类型跳过）
-        text = text.replace(/yunhu:\/\/(chat-add|post-detail|alley-detail)(\?[^<\s]*)?/g, (match, scheme, query) => {
-          if (scheme === 'ad') return match;
-          const params = new URLSearchParams(query || '');
-          const id = params.get('id') || '';
-          let label = '', dataType = '';
-          if (scheme === 'chat-add') {
-            const type = params.get('type') || 'user';
-            dataType = type;
-            const typeLabel = type === 'group' ? '群聊' : (type === 'bot' ? '机器人' : '用户');
-            label = '添加' + typeLabel + (id ? '#' + id : '');
-          } else if (scheme === 'post-detail') {
-            label = '查看文章' + (id ? '#' + id : '');
-          } else if (scheme === 'alley-detail') {
-            label = '查看分区' + (id ? '#' + id : '');
-          }
-          return `<span class="yh-yunhu-link" data-scheme="${scheme}" data-id="${id}" data-type="${dataType}" data-raw="${match}">${escapeHtml(label)}</span>`;
-        });
+        text = parseYunhuScheme(text);
         return text;
     }
   }
@@ -232,5 +216,25 @@
     return el;
   }
 
-  window.YHRender = { escapeHtml, sanitizeHtml, formatTime, fileSize, renderContent, renderBubble, renderSystem, failedImage };
+  // 解析 yunhu:// url_scheme（ad 类型跳过），返回包含可点击 <span> 的 HTML
+  function parseYunhuScheme(html) {
+    return html.replace(/yunhu:\/\/(chat-add|post-detail|alley-detail)(\?[^<\s]*)?/g, (match, scheme, query) => {
+      const params = new URLSearchParams(query || '');
+      const id = params.get('id') || '';
+      let label = '', dataType = '';
+      if (scheme === 'chat-add') {
+        const type = params.get('type') || 'user';
+        dataType = type;
+        const typeLabel = type === 'group' ? '群聊' : (type === 'bot' ? '机器人' : '用户');
+        label = '添加' + typeLabel + (id ? '#' + id : '');
+      } else if (scheme === 'post-detail') {
+        label = '查看文章' + (id ? '#' + id : '');
+      } else if (scheme === 'alley-detail') {
+        label = '查看分区' + (id ? '#' + id : '');
+      }
+      return `<span class="yh-yunhu-link" data-scheme="${scheme}" data-id="${id}" data-type="${dataType}" data-raw="${match}">${escapeHtml(label)}</span>`;
+    });
+  }
+
+  window.YHRender = { escapeHtml, sanitizeHtml, formatTime, fileSize, renderContent, renderBubble, renderSystem, failedImage, parseYunhuScheme };
 })();

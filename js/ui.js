@@ -1615,6 +1615,8 @@
     let text = post.content || '';
     if (post.contentType === 2) { try { text = window.marked ? window.marked.parse(text) : text; } catch (e) {} text = window.YHRender.sanitizeHtml(text); }
     else text = window.YHRender.escapeHtml(text).replace(/\n/g, '<br/>');
+    // 解析 yunhu:// url_scheme（ad 类型跳过）
+    text = window.YHRender.parseYunhuScheme(text);
     return text;
   }
 
@@ -1672,6 +1674,10 @@
       // 顶部"发送到会话…"下拉选择框
       bindSendToSelect(box, {
         postId: post.id, postTitle: post.title, postContent: post.content, postType: post.contentType,
+      });
+      // 文章正文中的 yunhu:// 链接点击
+      $$('.yh-yunhu-link', box).forEach(link => {
+        link.onclick = () => openYunhuScheme(link.dataset.scheme, link.dataset.id, link.dataset.type);
       });
       // 评论：初始化引用态
       S._replyingComment = null;
@@ -1798,13 +1804,17 @@
         ${avatarHtml(c.senderAvatar, c.senderNickname, 28)}
         <div class="yh-comment-main">
           <div class="yh-comment-author">${window.YHRender.escapeHtml(c.senderNickname || '匿名')}</div>
-          <div class="yh-comment-text">${window.YHRender.escapeHtml(c.content || '')}</div>
+          <div class="yh-comment-text">${window.YHRender.parseYunhuScheme(window.YHRender.escapeHtml(c.content || '').replace(/\n/g, '<br/>'))}</div>
           <div class="yh-comment-meta">${window.YHRender.formatTime(c.createTime)} · ${c.likeNum || 0} 赞</div>
         </div></div>`;
       }).join('');
       if (page === 1) box.innerHTML = html;
       else box.insertAdjacentHTML('beforeend', html);
       $$('#comment-list .yh-comment', box).forEach(el => bindMsgPress(el));
+      // 评论中的 yunhu:// 链接点击
+      $$('.yh-yunhu-link', box).forEach(link => {
+        link.onclick = () => openYunhuScheme(link.dataset.scheme, link.dataset.id, link.dataset.type);
+      });
       S._commentHasMore = comments.length >= 20;
     } catch (e) {
       if (indicator) indicator.remove();
