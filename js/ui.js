@@ -413,8 +413,7 @@
       const typeCode = type === 'group' ? 2 : (type === 'bot' ? 3 : 1);
       showDetail(typeCode, id, '');
     } else if (scheme === 'post-detail') {
-      // 跳转到社区文章详情
-      switchView('community');
+      // 跳转到社区文章详情（openPost 内部会切换视图）
       openPost(id);
     } else if (scheme === 'alley-detail') {
       // 跳转到社区分区文章列表
@@ -425,7 +424,7 @@
     }
   }
 
-  function switchView(v) {
+  function switchView(v, skipLoad) {
     // 离开消息页时停止后台刷新
     if (v !== 'messages') stopMsgRefresh();
     // 更新侧边栏 active 状态
@@ -436,9 +435,9 @@
     ['messages', 'contacts', 'community', 'profile'].forEach(name => {
       $('#view-' + name).hidden = (name !== v);
     });
-    if (v === 'contacts') loadContacts();
-    if (v === 'community') loadRecommend();
-    if (v === 'profile') renderProfile();
+    if (v === 'contacts' && !skipLoad) loadContacts();
+    if (v === 'community' && !skipLoad) loadRecommend();
+    if (v === 'profile' && !skipLoad) renderProfile();
   }
 
   // ============ 会话 / 聊天 ============
@@ -1633,6 +1632,8 @@
   }
 
   async function openPost(postId) {
+    // 确保社区视图可见（跳过 loadRecommend 避免与文章详情冲突）
+    switchView('community', true);
     // 帖子详情以页面展示（非 dialog），填充 #community-post-detail 并切换显示
     const box = $('#community-post-detail');
     box.innerHTML = '<div style="padding:18px;text-align:center">加载中…</div>';
@@ -2038,8 +2039,8 @@
             const icon = isFolder ? '📁' : '📄';
             const sizeStr = isFolder ? '' : window.YHRender.fileSize(f.fileSize);
             const time = f.uploadTime ? window.YHRender.formatTime(f.uploadTime * 1000) : '';
-            // 文件下载 URL：七牛云 key → CDN 地址（经媒体代理）
-            const fileUrl = f.qiniuKey ? window.YHApi.mediaUrl('https://chat-img.jwznb.com/' + f.qiniuKey) : '';
+            // 文件下载 URL：七牛云 key → CDN 直链（不走代理）
+            const fileUrl = f.qiniuKey ? 'https://chat-img.jwznb.com/' + f.qiniuKey : '';
             return `<div class="yh-disk-item" data-id="${f.id}" data-type="${f.objectType}" data-name="${window.YHRender.escapeHtml(f.name)}" data-url="${window.YHRender.escapeHtml(fileUrl)}">
               <span class="yh-disk-icon">${icon}</span>
               <div class="yh-disk-info">
@@ -2196,8 +2197,7 @@
       const cur = localStorage.getItem('yh_theme') || 'light';
       const next = cur === 'dark' ? 'light' : 'dark';
       localStorage.setItem('yh_theme', next);
-      if (window.mdui && window.mdui.setColorScheme) window.mdui.setColorScheme(next);
-      else document.documentElement.setAttribute('mdui-color-scheme', next);
+      document.documentElement.setAttribute('mdui-color-scheme', next);
     };
     body.querySelector('#pf-password').onclick = () => {
       const d2 = openDialog(`<div style="padding:18px">
@@ -2753,10 +2753,7 @@
   function start() {
     // 恢复深色模式偏好
     const savedTheme = localStorage.getItem('yh_theme');
-    if (savedTheme) {
-      if (window.mdui && window.mdui.setColorScheme) window.mdui.setColorScheme(savedTheme);
-      else document.documentElement.setAttribute('mdui-color-scheme', savedTheme);
-    }
+    if (savedTheme) document.documentElement.setAttribute('mdui-color-scheme', savedTheme);
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', init, { once: true });
     } else {

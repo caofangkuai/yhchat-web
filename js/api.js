@@ -542,7 +542,7 @@
     },
 
     async commentList(postId, page = 1, size = 20) {
-      const r = await this.rawJson('/v1/community/comment/comment-list', { postId, page, size });
+      const r = await this.rawJson('/v1/community/comment/comment-list', { postId: Number(postId), page, size });
       if (!r || r.code !== 1) throw new Error(r.msg || '获取评论失败');
       return r.data;
     },
